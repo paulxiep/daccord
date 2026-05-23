@@ -37,6 +37,11 @@ mlartifacts/
 /data/splits/
 /data/gold/snapshots/
 
+# Costs — inflight sqlite log and lock files; daily.csv + config.toml are committed
+/costs/inflight.sqlite
+/costs/inflight.sqlite-*
+/costs/*.lock
+
 # Models — never commit weights/adapters
 /models/
 *.bin

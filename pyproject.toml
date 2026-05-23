@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "daccord"
+version = "0.0.1"
+description = "Cross-jurisdiction regulatory clause mapping. Privacy MVP across SEA + EU; legal-domain extensible."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pydantic>=2.13,<3",
+    "mlflow>=2.18,<3",
+    "httpx>=0.28,<0.29",
+    "pyyaml>=6",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15",
+    "pyright>=1.1.409",
+    "pytest>=9.0,<10",
+    "types-pyyaml",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/daccord"]
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/F: pycodestyle/pyflakes basics; I: import sorting; B: bugbear; UP: pyupgrade
+# SIM: simplifications; C4: flake8-comprehensions (catches map(lambda...) etc.)
+# Project convention (enforced by review, not lint): never use base map()/filter() —
+# always comprehensions. Ruff has no rule that bans the non-lambda forms wholesale.
+select = ["E", "F", "I", "B", "UP", "SIM", "C4"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"

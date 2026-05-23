@@ -1,0 +1,34 @@
+# D'accord cost-tracking config — caps + pricing table.
+# Committed for audit trail. Edit a value, commit the change; git history is the
+# log of when prices/caps moved.
+
+warning_threshold_usd = 25.0           # R7 early-warning: any provider >= this for...
+consecutive_days_for_alert = 2         # ...this many consecutive days fires the alert
+
+[caps_usd_per_day]
+anthropic = 30.0
+openai = 20.0
+together = 15.0
+
+# Pricing in USD per 1,000,000 tokens. Add a new model = append a new table.
+# Unknown model at call time raises UnknownModel — no silent zero-cost fallback.
+
+[pricing.anthropic."claude-3-5-sonnet-20241022"]
+input_per_mtok = 3.00
+output_per_mtok = 15.00
+
+[pricing.anthropic."claude-3-5-haiku-20241022"]
+input_per_mtok = 0.80
+output_per_mtok = 4.00
+
+[pricing.openai."gpt-4o"]
+input_per_mtok = 2.50
+output_per_mtok = 10.00
+
+[pricing.openai."gpt-4o-mini"]
+input_per_mtok = 0.15
+output_per_mtok = 0.60
+
+[pricing.together."Qwen/Qwen2.5-72B-Instruct-Turbo"]
+input_per_mtok = 1.20
+output_per_mtok = 1.20

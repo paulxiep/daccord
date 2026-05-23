@@ -1,0 +1,149 @@
+{
+  "entries": [
+    {
+      "content_length": 259156,
+      "filename": "bdsg_de_current.pdf",
+      "framework": "bdsg",
+      "jurisdiction": "de",
+      "local_path": "C:/Users/paulx/Documents/portfolio/d-accord/data/raw/de/bdsg/bdsg_de_current.pdf",
+      "manual": false,
+      "retrieved_at": "2026-05-23T15:25:30.357942Z",
+      "sha256": "c02a85a398b18b953f90d1852612806ddfdf097af327f86a289de4c9ce27d25f",
+      "source_url": "https://www.gesetze-im-internet.de/bdsg_2018/BDSG.pdf"
+    },
+    {
+      "content_length": 364375,
+      "filename": "bdsg_en_current.pdf",
+      "framework": "bdsg",
+      "jurisdiction": "de",
+      "local_path": "C:/Users/paulx/Documents/portfolio/d-accord/data/raw/de/bdsg/bdsg_en_current.pdf",
+      "manual": false,
+      "retrieved_at": "2026-05-23T15:25:32.691758Z",
+      "sha256": "d0ddf00d5eca4fe7409cc9866d6b267d005349e34d8d425af797877d0524260c",
+      "source_url": "https://www.gesetze-im-internet.de/englisch_bdsg/englisch_bdsg.pdf"
+    },
+    {
+      "content_length": 396667,
+      "filename": "dpa_2012_ph.pdf",
+      "framework": "dpa_2012_ph",
+      "jurisdiction": "ph",
+      "local_path": "C:/Users/paulx/Documents/portfolio/d-accord/data/raw/ph/dpa_2012_ph/dpa_2012_ph.pdf",
+      "manual": false,
+      "retrieved_at": "2026-05-23T15:25:33.090740Z",
+      "sha256": "4dace98ab96db87f75c1da92e51d6916cdef6436c0d77f1eccc9fc732f6427d5",
+      "source_url": "https://privacy.gov.ph/wp-content/uploads/2017/03/DPA-of-2012.pdf"
+    },
+    {
+      "content_length": 505235,
+      "filename": "dpa_2012_ph_irr_amended.pdf",
+      "framework": "dpa_2012_ph",
+      "jurisdiction": "ph",
+      "local_path": "C:/Users/paulx/Documents/portfolio/d-accord/data/raw/ph/dpa_2012_ph/dpa_2012_ph_irr_amended.pdf",
+      "manual": false,
+      "retrieved_at": "2026-05-23T15:25:33.183606Z",
+      "sha256": "1d8218f48661ea7fade72a3dda44de5a1cfc08cac50f857d5eb4248b5a45133d",
+      "source_url": "https://privacy.gov.ph/wp-content/uploads/2023/06/IRR_RA-10173-as-amended.pdf"
+    },
+    {
+      "content_length": 17777610,
+      "filename": "dpa_2018_current.pdf",
+      "framework": "dpa_2018",
+      "jurisdiction": "uk",
+      "local_path": "C:/Users/paulx/Documents/portfolio/d-accord/data/raw/uk/dpa_2018/dpa_2018_current.pdf",
+      "manual": true,
+      "retrieved_at": "2026-05-23T15:42:50.242741Z",
+      "sha256": "1f2602dbd2fb0390d4d6a5a496a15e442b474d192cffb314b044e865c62ce114",
+      "source_url": null
+    },
+    {
+      "content_length": 623086,
+      "filename": "reg_2016_679_consolidated.pdf",
+      "framework": "gdpr",
+      "jurisdiction": "eu",
+      "local_path": "C:/Users/paulx/Documents/portfolio/d-accord/data/raw/eu/gdpr/reg_2016_679_consolidated.pdf",
+      "manual": false,
+      "retrieved_at": "2026-05-23T15:25:27.436272Z",
+      "sha256": "18e6c90c505143021c086d72fb93ac898ba2e078e2f1b8236e8ce2ff237c052c",
+      "source_url": "https://eur-lex.europa.eu/legal-content/EN/TXT/PDF/?uri=CELEX:02016R0679-20160504"
+    },
+    {
+      "content_length": 29785056,
+      "filename": "loi_78_17_consolidated.pdf",
+      "framework": "loi_il",
+      "jurisdiction": "fr",
+      "local_path": "C:/Users/paulx/Documents/portfolio/d-accord/data/raw/fr/loi_il/loi_78_17_consolidated.pdf",
+      "manual": true,
+      "retrieved_at": "2026-05-23T15:42:50.257793Z",
+      "sha256": "8803c88720db82fa78ea387104e5199bb9daa564eeb4002d8f53d63212c82970",
+      "source_url": null
+    },
+    {
+      "content_length": 911260,
+      "filename": "pdpa_my_act709_bilingual.pdf",
+      "framework": "pdpa_my",
+      "jurisdiction": "my",
+      "local_path": "C:/Users/paulx/Documents/portfolio/d-accord/data/raw/my/pdpa_my/pdpa_my_act709_bilingual.pdf",
+      "manual": false,
+      "retrieved_at": "2026-05-23T15:25:33.911312Z",
+      "sha256": "435547a3a9d9a1e9e264f46cc2a44bf8afa8bf94c234224d8e7710cf74b589c4",
+      "source_url": "https://www.pdp.gov.my/ppdpv1/wp-content/uploads/2024/07/UNDANG-UNDANG-MALAYSIA_AKTA_PERLINDUNGAN_DATA_PERIBADI_2010_709_MALAY_AND-ENG_V2022.pdf"
+    },
+    {
+      "content_length": 247482,
+      "filename": "pdpa_my_amendment_act_a1727_2024.pdf",
+      "framework": "pdpa_my",
+      "jurisdiction": "my",
+      "local_path": "C:/Users/paulx/Documents/portfolio/d-accord/data/raw/my/pdpa_my/pdpa_my_amendment_act_a1727_2024.pdf",
+      "manual": false,
+      "retrieved_at": "2026-05-23T15:25:34.028140Z",
+      "sha256": "31fc86fad3910515a23c68d28bd254454cc4a4ea29dcdc2f49fdefdee90d1e95",
+      "source_url": "https://www.pdp.gov.my/ppdpv1/wp-content/uploads/2024/11/Act-A1727.pdf"
+    },
+    {
+      "content_length": 461395,
+      "filename": "pdpa_sg_current.pdf",
+      "framework": "pdpa_sg",
+      "jurisdiction": "sg",
+      "local_path": "C:/Users/paulx/Documents/portfolio/d-accord/data/raw/sg/pdpa_sg/pdpa_sg_current.pdf",
+      "manual": true,
+      "retrieved_at": "2026-05-23T15:42:50.258792Z",
+      "sha256": "0e996ae99839f19e27f97024692e090197cf44a14709f93cd74a7d2efc1476db",
+      "source_url": null
+    },
+    {
+      "content_length": 622084,
+      "filename": "pdpa_th_english_2019.pdf",
+      "framework": "pdpa_th",
+      "jurisdiction": "th",
+      "local_path": "C:/Users/paulx/Documents/portfolio/d-accord/data/raw/th/pdpa_th/pdpa_th_english_2019.pdf",
+      "manual": false,
+      "retrieved_at": "2026-05-23T15:25:32.826373Z",
+      "sha256": "703456b0841778757f0ad63720e75891d486a2c3ea506332487b8923a9d08d5a",
+      "source_url": "https://www.mdes.go.th/uploads/tinymce/source/%E0%B8%AA%E0%B8%84%E0%B8%AA/Personal%20Data%20Protection%20Act%202019.pdf"
+    },
+    {
+      "content_length": 343490,
+      "filename": "pdpa_th_thai_2019.pdf",
+      "framework": "pdpa_th",
+      "jurisdiction": "th",
+      "local_path": "C:/Users/paulx/Documents/portfolio/d-accord/data/raw/th/pdpa_th/pdpa_th_thai_2019.pdf",
+      "manual": true,
+      "retrieved_at": "2026-05-23T15:42:50.270592Z",
+      "sha256": "9fd1027c2e5ad93029a01d68d52d524750c1e8946b97f12fb230c11959da2f70",
+      "source_url": null
+    },
+    {
+      "content_length": 2501670,
+      "filename": "uk_gdpr_current.pdf",
+      "framework": "uk_gdpr",
+      "jurisdiction": "uk",
+      "local_path": "C:/Users/paulx/Documents/portfolio/d-accord/data/raw/uk/uk_gdpr/uk_gdpr_current.pdf",
+      "manual": true,
+      "retrieved_at": "2026-05-23T15:42:50.137235Z",
+      "sha256": "9885d3410bf7bb553cea2c84aceebf19962431669fc2c23c149cd1cb47e398f9",
+      "source_url": null
+    }
+  ],
+  "generated_at": "2026-05-23T15:42:50.272598Z",
+  "schema_version": 1
+}
