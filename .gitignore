@@ -1,0 +1,76 @@
+# Root-level scratch markdown — default to ignore, README.md is the exception
+/*.md
+!/README.md
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+
+# Environment / secrets
+.env
+.env.local
+*.secret
+
+# MLflow tracking
+mlruns/
+mlartifacts/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Data — raw PDFs, parsed markdown, ensemble outputs, splits all gitignored
+# Only data/gold/ (hand-validated mapping pairs) is committed
+/data/raw/
+/data/parsed/
+/data/registry/
+/data/ensemble/
+/data/tiering/
+/data/splits/
+/data/gold/snapshots/
+
+# Models — never commit weights/adapters
+/models/
+*.bin
+*.safetensors
+*.gguf
+*.pt
+*.pth
+adapter/
+checkpoints/
+
+# Training artifacts
+/training/runs/
+/training/outputs/
+/training/logs/
+
+# Eval outputs — raw traces gitignored; results.csv committed
+/eval/traces/
+/eval/raw/
+
+# Publish staging
+/publish/staging/
+
+# Caravan-generated (mirrors code-rag pattern)
+/infra/
+/caravan.exe
+
+# Cache
+/.cache/
+.fastembed_cache/
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
