@@ -4,6 +4,7 @@ from daccord.costs.tracker import (
     preflight,
     record_call,
     rollup_daily,
+    today_requests,
     today_spend,
 )
 
@@ -14,5 +15,6 @@ __all__ = [
     "preflight",
     "record_call",
     "rollup_daily",
+    "today_requests",
     "today_spend",
 ]

@@ -6,12 +6,32 @@ warning_threshold_usd = 25.0           # R7 early-warning: any provider >= this 
 consecutive_days_for_alert = 2         # ...this many consecutive days fires the alert
 
 [caps_usd_per_day]
+# Paid providers kept for paid-spill fallback only; Phase 1 runs on free-tier OSS.
 anthropic = 30.0
 openai = 20.0
 together = 15.0
 
+[caps_requests_per_day]
+# Free-tier providers (RPD = requests-per-day). Verify current quotas at run time
+# against the provider's published free-tier limits before kicking off tier 7A.
+groq = 14400
+google_gemini = 1500
+# Cerebras free tier is token-based, not RPD-based: 1M tokens/day + 5 RPM + 30K TPM
+# (verified 2026-05-25 from https://inference-docs.cerebras.ai/support/rate-limits).
+# At ~1k tokens/call (chain-of-thought ensemble prompts) the TPD cap dominates:
+# 1M / 1k = ~1000 calls/day. The 5 RPM ceiling is the real bottleneck — tier 7A
+# must pace at <=5 req/min per Cerebras call site.
+cerebras = 1000
+# DeepSeek free tier is a one-time 5M-token signup credit, NOT recurring daily
+# (verified 2026-05-25 from https://api-docs.deepseek.com). The RPD entry here is
+# a *budgetary aid* so the tracker enforces a daily ceiling, but the absolute
+# cap is the 5M-token bucket — tier 7A operator must monitor cumulative token
+# spend separately (the tracker only enforces per-day, not lifetime).
+deepseek = 1000
+
 # Pricing in USD per 1,000,000 tokens. Add a new model = append a new table.
-# Unknown model at call time raises UnknownModel — no silent zero-cost fallback.
+# Unknown model at call time raises UnknownModel for paid providers.
+# Free-tier providers don't need pricing entries — estimate_cost returns 0.0.
 
 [pricing.anthropic."claude-3-5-sonnet-20241022"]
 input_per_mtok = 3.00

@@ -12,6 +12,9 @@ dependencies = [
     "mlflow>=2.18,<3",
     "httpx>=0.28,<0.29",
     "pyyaml>=6",
+    # Tier 2B (eval harness) provider SDKs — `groq`, `google-genai` — live in
+    # envs/eval/ so the shared venv stays decoupled from per-provider version
+    # churn (e.g. marker-pdf in envs/bakeoff/ wants google-genai<2).
 ]
 
 [dependency-groups]

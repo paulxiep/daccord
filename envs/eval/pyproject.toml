@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "daccord-eval-env"
+version = "0.0.0"
+description = "Tier-2B eval-harness env (Groq + Gemini provider SDKs + retrieval baseline). Free-tier provider deps and the retrieval baseline's sentence-transformers + faiss-cpu live here so the shared daccord venv stays slim and decoupled from marker-pdf's google-genai<2 pin in envs/bakeoff/."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "daccord",
+    "groq>=1.2,<2",
+    "google-genai>=2.6,<3",
+    # Tier 12B retrieval baseline. sentence-transformers brings torch + transformers
+    # + huggingface-hub transitively — accept the weight here; this env is allowed
+    # to grow (root env stays slim). faiss-cpu provides the nearest-neighbor index.
+    # numpy is brought transitively but pinned here for clarity.
+    "sentence-transformers>=5.5,<6",
+    "faiss-cpu>=1.14,<2",
+    "numpy>=2.4,<3",
+]
+
+[dependency-groups]
+dev = ["pytest>=9.0,<10"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+daccord = { path = "../..", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["../../src"]
+addopts = "-q"

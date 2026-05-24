@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "daccord-bakeoff-env"
+version = "0.0.0"
+description = "Tier-2D parser bake-off env (Marker vs Typhoon-OCR). Heavy GPU deps live here so the shared daccord venv stays slim."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "daccord",
+    "pymupdf>=1.27,<2",
+    "marker-pdf>=1.10,<2",
+    "typhoon-ocr>=0.4,<1",
+    # Required by `transformers.AutoModelForImageTextToText.from_pretrained`
+    # when `device_map="auto"` — Typhoon-OCR1.5-2B loading depends on it.
+    "accelerate>=1.0,<2",
+    # AutoProcessor for Typhoon-OCR1.5-2B pulls in AutoVideoProcessor which
+    # requires torchvision at import-time even though we never run video paths.
+    "torchvision>=0.20,<1",
+]
+
+[dependency-groups]
+dev = ["pytest>=9.0,<10"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+daccord = { path = "../..", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["../../src"]
+addopts = "-q"

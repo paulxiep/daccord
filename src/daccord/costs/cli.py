@@ -6,10 +6,12 @@ from datetime import UTC, datetime
 
 from daccord.costs.config import PROVIDERS, Provider, load_config
 from daccord.costs.storage import daily_provider_totals
-from daccord.costs.tracker import rollup_daily, today_spend
+from daccord.costs.tracker import rollup_daily, today_requests, today_spend
 
 
-def _streak_days_over(per_day: dict[str, dict[Provider, float]], provider: Provider, threshold: float) -> int:
+def _streak_days_over(
+    per_day: dict[str, dict[Provider, float]], provider: Provider, threshold: float
+) -> int:
     """Length of the most recent consecutive run of days where provider spent >= threshold,
     counting backwards from the most recent recorded date."""
     dates_desc = sorted(per_day.keys(), reverse=True)
@@ -30,23 +32,37 @@ def _flag(spent: float, cap: float, warn: float) -> str:
     return "[OK]"
 
 
+def _flag_rpd(n: int, cap: int) -> str:
+    if n > cap:
+        return "[OVER RPD]"
+    if n >= int(cap * 0.8):
+        return "[WARN >=80%]"
+    return "[OK]"
+
+
 def cmd_status(_args: argparse.Namespace) -> int:
     config = load_config()
     today = datetime.now(UTC).date().isoformat()
     per_day = daily_provider_totals()
-    spent_today = {p: today_spend(p) for p in PROVIDERS}
+    paid_providers: list[Provider] = [p for p in PROVIDERS if config.kind_of(p) == "paid"]
+    free_providers: list[Provider] = [p for p in PROVIDERS if config.kind_of(p) == "free_tier"]
     streaks = {
-        p: _streak_days_over(per_day, p, config.warning_threshold_usd) for p in PROVIDERS
+        p: _streak_days_over(per_day, p, config.warning_threshold_usd) for p in paid_providers
     }
     print(f"D'accord cost status  ({today} UTC)")
     print(f"  warning >= ${config.warning_threshold_usd:.2f}/d   "
           f"alert at {config.consecutive_days_for_alert}+ consecutive days\n")
-    for p in PROVIDERS:
+    for p in paid_providers:
         cap = config.cap_for(p)
-        spent = spent_today[p]
+        spent = today_spend(p)
         flag = _flag(spent, cap, config.warning_threshold_usd)
-        print(f"  {p:<10}  today ${spent:>7.4f} / cap ${cap:>5.2f}   "
+        print(f"  {p:<14}  today ${spent:>7.4f} / cap ${cap:>5.2f}   "
               f"streak {streaks[p]}d  {flag}")
+    for p in free_providers:
+        rpd_cap = config.request_cap_for(p)
+        n = today_requests(p)
+        flag = _flag_rpd(n, rpd_cap)
+        print(f"  {p:<14}  today {n:>5} req / cap {rpd_cap:>5} RPD   {flag}")
     alerts = [p for p, s in streaks.items() if s >= config.consecutive_days_for_alert]
     if alerts:
         print(f"\n  ALERT  R7 streak hit for: {', '.join(alerts)}", file=sys.stderr)
@@ -61,10 +77,16 @@ def cmd_rollup(_args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="daccord.costs", description="D'accord API spend tracker.")
+    parser = argparse.ArgumentParser(
+        prog="daccord.costs", description="D'accord API spend tracker."
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("status", help="print today's spend per provider; exit 1 if R7 alert").set_defaults(func=cmd_status)
-    sub.add_parser("rollup", help="rebuild costs/daily.csv from inflight.sqlite").set_defaults(func=cmd_rollup)
+    sub.add_parser(
+        "status", help="print today's spend per provider; exit 1 if R7 alert"
+    ).set_defaults(func=cmd_status)
+    sub.add_parser(
+        "rollup", help="rebuild costs/daily.csv from inflight.sqlite"
+    ).set_defaults(func=cmd_rollup)
     return parser
 
 

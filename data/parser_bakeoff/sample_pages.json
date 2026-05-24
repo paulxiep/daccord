@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "source_pdf": "data/raw/th/pdpa_th/pdpa_th_thai_2019.pdf",
+  "source_pdf_sha256": "9fd1027c2e5ad93029a01d68d52d524750c1e8946b97f12fb230c11959da2f70",
+  "pages": [1, 11, 16, 39, 42],
+  "rationale": {
+    "1": "Citation-dense opening — section start (มาตรา ๒ onward), exercises citation-ID extraction on multiple consecutive section headings",
+    "11": "Cross-reference-dense — body content with a numbered list (๑)-(๗) and a list of cross-references to many other sections; stress test for citation extraction",
+    "16": "Structural transition — start of หมวด ๓ สิทธิของเจ้าของข้อมูลส่วนบุคคล (Chapter 3) + opening section มาตรา ๓๐; tests preservation of chapter headings",
+    "39": "Penalty section (มาตรา ๘๓) with another dense list of cross-referenced section numbers; reading-order + citation stress",
+    "42": "Closing page — มาตรา ๙๖ + royal countersignature block (พลเอก ประยุทธ์ จันทร์โอชา); short, structurally distinct from body prose"
+  },
+  "notes": "Pages are 0-indexed in PyMuPDF order. The Thai reader (project author) confirms section presence on each page when populating expected_citation_ids.json."
+}

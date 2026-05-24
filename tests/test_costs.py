@@ -15,6 +15,7 @@ from daccord.costs import (
     preflight,
     record_call,
     rollup_daily,
+    today_requests,
     today_spend,
 )
 from daccord.costs import cli as cli_module
@@ -34,6 +35,12 @@ consecutive_days_for_alert = 2
 anthropic = 30.0
 openai = 20.0
 together = 15.0
+
+[caps_requests_per_day]
+groq = 14400
+google_gemini = 1500
+cerebras = 1000
+deepseek = 1000
 
 [pricing.anthropic."claude-3-5-sonnet-20241022"]
 input_per_mtok = 3.00
@@ -65,7 +72,9 @@ def costs_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 class TestPricing:
     def test_estimate_cost_sonnet(self, costs_env: Path) -> None:
         # 1M in @ $3 + 1M out @ $15 = $18
-        assert estimate_cost("anthropic", "claude-3-5-sonnet-20241022", 1_000_000, 1_000_000) == pytest.approx(18.0)
+        assert estimate_cost(
+            "anthropic", "claude-3-5-sonnet-20241022", 1_000_000, 1_000_000
+        ) == pytest.approx(18.0)
 
     def test_estimate_cost_gpt4o_partial(self, costs_env: Path) -> None:
         # 500k in @ $2.50/MTok + 100k out @ $10/MTok = 1.25 + 1.00 = 2.25
@@ -83,7 +92,9 @@ class TestPricing:
 class TestCaps:
     def test_preflight_under_cap_passes(self, costs_env: Path) -> None:
         # cap $30; 100k+100k sonnet = (0.3 + 1.5) = $1.80
-        assert preflight("anthropic", "claude-3-5-sonnet-20241022", 100_000, 100_000) == pytest.approx(1.80)
+        assert preflight(
+            "anthropic", "claude-3-5-sonnet-20241022", 100_000, 100_000
+        ) == pytest.approx(1.80)
 
     def test_preflight_over_cap_raises(self, costs_env: Path) -> None:
         # 2M in + 2M out sonnet = (6 + 30) = $36 > $30 cap
@@ -217,3 +228,141 @@ class TestConfigLoad:
         assert cfg.warning_threshold_usd == 25.0
         assert cfg.cap_for("anthropic") == 30.0
         assert cfg.pricing_for("openai", "gpt-4o").input_per_mtok == 2.50
+
+    def test_kind_of_paid(self, costs_env: Path) -> None:
+        assert load_config().kind_of("anthropic") == "paid"
+
+    def test_kind_of_free_tier(self, costs_env: Path) -> None:
+        cfg = load_config()
+        assert cfg.kind_of("groq") == "free_tier"
+        assert cfg.kind_of("google_gemini") == "free_tier"
+        assert cfg.kind_of("cerebras") == "free_tier"
+        assert cfg.kind_of("deepseek") == "free_tier"
+
+    def test_request_cap_for_free_tier(self, costs_env: Path) -> None:
+        cfg = load_config()
+        assert cfg.request_cap_for("groq") == 14400
+        assert cfg.request_cap_for("google_gemini") == 1500
+        assert cfg.request_cap_for("cerebras") == 1000
+        assert cfg.request_cap_for("deepseek") == 1000
+
+
+class TestFreeTier:
+    def test_estimate_cost_is_zero_for_free_tier(self, costs_env: Path) -> None:
+        assert estimate_cost("groq", "llama-3.3-70b-versatile", 5_000, 5_000) == 0.0
+        assert estimate_cost("google_gemini", "gemini-2.0-flash", 5_000, 5_000) == 0.0
+
+    def test_preflight_under_rpd_cap_passes(self, costs_env: Path) -> None:
+        # cap 14400; no calls today; preflight returns 0.0 cost
+        assert preflight("groq", "llama-3.3-70b-versatile", 5_000, 5_000) == 0.0
+
+    def test_preflight_over_rpd_cap_raises(self, costs_env: Path) -> None:
+        # Seed 1500 calls under google_gemini today; preflight (which would push to 1501) raises
+        today = datetime.now(UTC).date().isoformat()
+        for i in range(1500):
+            append_call(
+                CallRow(
+                    ts_utc=f"{today}T12:00:00.{i:06d}+00:00",
+                    provider="google_gemini",
+                    model="gemini-2.0-flash",
+                    input_tokens=1,
+                    output_tokens=1,
+                    cost_usd=0.0,
+                )
+            )
+        with pytest.raises(CapExceeded):
+            preflight("google_gemini", "gemini-2.0-flash", 100, 100)
+
+    def test_record_call_increments_request_count(self, costs_env: Path) -> None:
+        assert today_requests("groq") == 0
+        record_call("groq", "llama-3.3-70b-versatile", 1_000, 1_000)
+        record_call("groq", "llama-3.3-70b-versatile", 1_000, 1_000)
+        assert today_requests("groq") == 2
+        # Free-tier rows carry $0 cost
+        assert today_spend("groq") == 0.0
+
+    def test_record_call_over_rpd_cap_raises(self, costs_env: Path) -> None:
+        # Seed 1500 google_gemini calls then one more record should raise after append
+        today = datetime.now(UTC).date().isoformat()
+        for i in range(1500):
+            append_call(
+                CallRow(
+                    ts_utc=f"{today}T12:00:00.{i:06d}+00:00",
+                    provider="google_gemini",
+                    model="gemini-2.0-flash",
+                    input_tokens=1,
+                    output_tokens=1,
+                    cost_usd=0.0,
+                )
+            )
+        with pytest.raises(CapExceeded):
+            record_call("google_gemini", "gemini-2.0-flash", 100, 100)
+        # Call was still logged before the raise
+        assert today_requests("google_gemini") == 1501
+
+    @pytest.mark.parametrize(
+        ("provider", "model", "cap"),
+        [
+            ("cerebras", "qwen-3-235b-a22b-instruct-2507", 1000),
+            ("deepseek", "deepseek-chat", 1000),
+        ],
+    )
+    def test_preflight_over_rpd_cap_raises_new_providers(
+        self, costs_env: Path, provider: str, model: str, cap: int
+    ) -> None:
+        today = datetime.now(UTC).date().isoformat()
+        for i in range(cap):
+            append_call(
+                CallRow(
+                    ts_utc=f"{today}T12:00:00.{i:06d}+00:00",
+                    provider=provider,  # type: ignore[arg-type]
+                    model=model,
+                    input_tokens=1,
+                    output_tokens=1,
+                    cost_usd=0.0,
+                )
+            )
+        with pytest.raises(CapExceeded):
+            preflight(provider, model, 100, 100)  # type: ignore[arg-type]
+        # Free-tier estimate_cost stays at zero for new providers
+        assert estimate_cost(provider, model, 100, 100) == 0.0  # type: ignore[arg-type]
+
+    def test_override_bypasses_rpd_preflight(
+        self, costs_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        today = datetime.now(UTC).date().isoformat()
+        for i in range(1500):
+            append_call(
+                CallRow(
+                    ts_utc=f"{today}T12:00:00.{i:06d}+00:00",
+                    provider="google_gemini",
+                    model="gemini-2.0-flash",
+                    input_tokens=1,
+                    output_tokens=1,
+                    cost_usd=0.0,
+                )
+            )
+        monkeypatch.setenv("DACCORD_COSTS_OVERRIDE", "1")
+        # No raise even though we're past RPD cap
+        preflight("google_gemini", "gemini-2.0-flash", 100, 100)
+
+
+class TestConfigValidation:
+    def test_provider_in_both_caps_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bad = """\
+warning_threshold_usd = 25.0
+consecutive_days_for_alert = 2
+
+[caps_usd_per_day]
+groq = 5.0
+
+[caps_requests_per_day]
+groq = 14400
+"""
+        path = tmp_path / "bad.toml"
+        path.write_text(bad, encoding="utf-8")
+        monkeypatch.setenv(CONFIG_PATH_ENV, str(path))
+        with pytest.raises(ValidationError):
+            load_config()

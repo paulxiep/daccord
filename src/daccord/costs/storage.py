@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator
 
 from daccord.costs.config import Provider, inflight_path
 from daccord.validation import ValidatedModel, validated
@@ -112,6 +112,18 @@ def sum_today(provider: Provider, db_path: Path | None = None) -> float:
             (provider, today),
         )
         return float(cur.fetchone()[0])
+
+
+@validated
+def count_today(provider: Provider, db_path: Path | None = None) -> int:
+    today = datetime.now(UTC).date().isoformat()
+    with _connect(db_path) as conn:
+        cur = conn.execute(
+            "SELECT COUNT(*) FROM inflight "
+            "WHERE provider = ? AND substr(ts_utc, 1, 10) = ?",
+            (provider, today),
+        )
+        return int(cur.fetchone()[0])
 
 
 @validated

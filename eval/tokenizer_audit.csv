@@ -1,0 +1,5 @@
+lang,framework,filename,source_sha256,page_start,page_end,total_chars,total_tokens,tokens_per_char,tokens_per_word,single_byte_token_fraction,token_char_len_p50,token_char_len_p90,token_char_len_p99,verdict
+th,pdpa_th,pdpa_th_thai_2019.pdf,9fd1027c2e5ad93029a01d68d52d524750c1e8946b97f12fb230c11959da2f70,14,22,16735,9625,0.575142,,0.055169,2.000,3.000,6.000,PASS
+fr,loi_il,loi_78_17_consolidated.pdf,8803c88720db82fa78ea387104e5199bb9daa564eeb4002d8f53d63212c82970,48,56,1351,703,0.520355,4.393750,0.613087,1.000,4.000,8.980,PASS
+de,bdsg,bdsg_de_current.pdf,c02a85a398b18b953f90d1852612806ddfdf097af327f86a289de4c9ce27d25f,15,23,33928,10266,0.302582,2.325255,0.171829,3.000,6.000,8.000,PASS
+en,gdpr,reg_2016_679_consolidated.pdf,18e6c90c505143021c086d72fb93ac898ba2e078e2f1b8236e8ce2ff237c052c,26,34,20451,4364,0.213388,1.342769,0.180110,4.000,10.000,13.000,PASS
