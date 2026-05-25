@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "daccord-consumer-env"
+version = "0.0.0"
+description = "Tier-12C side-by-side comparison + CSV export demo (Streamlit). Local-mode runs HybridRouter directly with the QLoRA adapter loaded via PEFT; remote-mode invokes the hybrid-serving SageMaker endpoint via boto3."
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "daccord",
+    # UI
+    "streamlit>=1.57,<2",
+    # Local-mode inference path. peft + transformers + bitsandbytes load the
+    # QLoRA adapter on the local GPU. Same versions as publish/package_model.py
+    # writes into the SageMaker requirements.txt so local-mode + endpoint-mode
+    # produce identical outputs.
+    "torch>=2.7,<3",
+    "transformers>=5.9,<6",
+    "peft>=0.19,<1",
+    "bitsandbytes>=0.49,<1",
+    # Retrieval baseline path (mirrors envs/eval/) so the side-by-side view can
+    # render the retrieval column without the eval env being installed.
+    "sentence-transformers>=5.5,<6",
+    "faiss-cpu>=1.14,<2",
+    "numpy>=2.4,<3",
+    # Remote-mode invocation against the SageMaker endpoint.
+    "boto3>=1.43,<2",
+]
+
+[dependency-groups]
+dev = ["pytest>=9.0,<10"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+daccord = { path = "..", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["../src"]
+addopts = "-q"

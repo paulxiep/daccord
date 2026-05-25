@@ -12,6 +12,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .venv/
+# Per-env venvs for tier sub-projects (e.g. envs/bakeoff/.venv for tier 2D).
+# Each envs/<tier>/ is an independent uv project with its own lockfile + venv.
+envs/*/.venv/
 build/
 dist/
 
@@ -36,6 +39,20 @@ mlartifacts/
 /data/tiering/
 /data/splits/
 /data/gold/snapshots/
+# Gold drafter intermediate outputs (LLM proposals before human reconcile/verify)
+/data/gold/*.draft_*.jsonl
+
+# Parser bake-off (tier 2D): per-page parser outputs + rasterized images are
+# large and reproducible. Only the M1 artifacts are committed:
+#   sample_pages.json, expected_citation_ids.json, score_table.csv, summary.md
+/data/parser_bakeoff/marker/
+/data/parser_bakeoff/typhoon/
+/data/parser_bakeoff/page_images/
+
+# Costs — inflight sqlite log and lock files; daily.csv + config.toml are committed
+/costs/inflight.sqlite
+/costs/inflight.sqlite-*
+/costs/*.lock
 
 # Models — never commit weights/adapters
 /models/

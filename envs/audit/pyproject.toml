@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "daccord-audit-env"
+version = "0.0.0"
+description = "Tier-2C tokenizer audit env. Loads the chosen-base tokenizer (Qwen3-8B today) + reads PDFs; heavy deps live here so the shared daccord venv stays slim."
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "daccord",
+    # Latest stable lines (verified 2026-05-23). Held back here only by 2C's
+    # own consumption surface (AutoTokenizer + PdfDocument) — both APIs are
+    # stable across the v4→v5 / 4.x→5.x upgrade window so we ride the head.
+    "transformers>=5.9,<6",
+    "pypdfium2>=5.7,<6",
+]
+
+[dependency-groups]
+dev = ["pytest>=9.0,<10"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+daccord = { path = "../..", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["../../src"]
+addopts = "-q"
