@@ -41,9 +41,7 @@ def test_setup_mlflow_uses_explicit_uri(isolated_tracking: Path) -> None:
     assert mlflow.get_experiment_by_name("test-experiment") is not None
 
 
-def test_setup_mlflow_falls_back_to_env(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_setup_mlflow_falls_back_to_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MLFLOW_TRACKING_URI", f"file:{tmp_path.as_posix()}")
     setup_mlflow(experiment_name="env-experiment")
     assert mlflow.get_tracking_uri() == f"file:{tmp_path.as_posix()}"

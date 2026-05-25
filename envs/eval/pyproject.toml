@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "daccord-eval-env"
 version = "0.0.0"
 description = "Tier-2B eval-harness env (Groq + Gemini provider SDKs + retrieval baseline). Free-tier provider deps and the retrieval baseline's sentence-transformers + faiss-cpu live here so the shared daccord venv stays slim and decoupled from marker-pdf's google-genai<2 pin in envs/bakeoff/."
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "daccord",
     "groq>=1.2,<2",

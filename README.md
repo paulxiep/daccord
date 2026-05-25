@@ -73,6 +73,21 @@ Per-jurisdiction + per-language breakdowns are aggregated from CSV rows at read 
 
 Planning / early-stage. MVP pipeline: scrape → parse → registry → ensemble generation → tiering → validation → training → eval → deploy.
 
+## Development environment
+
+**All development runs in Linux containers via Docker Compose.** Two thin Dockerfiles (CPU + CUDA) back five compose services (`root`, `eval`, `audit`, `bakeoff`, `consumer`). Host requirements: Docker Desktop (WSL2 backend) + an NVIDIA Windows driver for GPU services — no CUDA Toolkit install needed on the host (bundled in the CUDA image).
+
+Quick start:
+
+```bash
+docker compose build root eval                       # CPU image (first time only)
+docker compose run --rm root uv sync                 # shared daccord lib
+docker compose run --rm eval uv sync                 # tier 2B eval harness
+docker compose run --rm eval uv run pytest           # 78/78 should pass
+```
+
+See [CLAUDE.md](CLAUDE.md) for the full command reference, GPU setup notes, the per-env Python version split (root/eval/audit/consumer on 3.14; bakeoff on 3.13 due to marker-pdf's `pillow<11` ceiling), and verification gates.
+
 ## Tech Stack
 
 - **Base model**: Qwen2.5-7B-Instruct (multilingual: Thai, French, German, English)

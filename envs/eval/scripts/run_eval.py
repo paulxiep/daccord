@@ -107,47 +107,88 @@ def _dry_run(gold_path: Path, aliases: list[str]) -> int:
         )
     if gold.pairs:
         sample = build_eval_prompt(gold.pairs[0])
-        log.info("[dry-run] sample prompt (first pair):\n--- system ---\n%s\n--- user ---\n%s",
-                 sample.system, sample.user)
+        log.info(
+            "[dry-run] sample prompt (first pair):\n--- system ---\n%s\n--- user ---\n%s",
+            sample.system,
+            sample.user,
+        )
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--gold-path", type=Path, default=DEFAULT_GOLD,
-                        help=f"path to gold JSONL (default: {DEFAULT_GOLD})")
-    parser.add_argument("--models", default="groq,gemini",
-                        help="comma-separated model aliases: groq,gemini,retrieval")
-    parser.add_argument("--judge", default="gemini-2.5-flash",
-                        help="judge model (default: gemini-2.5-flash)")
-    parser.add_argument("--output-csv", type=Path, default=DEFAULT_OUTPUT,
-                        help=f"per-row CSV output (default: {DEFAULT_OUTPUT})")
-    parser.add_argument("--run-name", required=False, default=None,
-                        help="MLflow parent run name (required for live runs)")
-    parser.add_argument("--prompt-variant", default="unconstrained-m0",
-                        help="propagated to MLflow tags + downstream comparability notes")
-    parser.add_argument("--groq-model", default=None,
-                        help="override Groq model id (default: llama-3.3-70b-versatile)")
-    parser.add_argument("--gemini-model", default=None,
-                        help="override Gemini model id (default: gemini-2.5-flash)")
-    parser.add_argument("--retrieval-index-path", type=Path, default=None,
-                        help="path to FAISS index (required when retrieval is in --models)")
-    parser.add_argument("--retrieval-embedder", default=DEFAULT_RETRIEVAL_EMBEDDER,
-                        help=f"retrieval embedder (default: {DEFAULT_RETRIEVAL_EMBEDDER})")
-    parser.add_argument("--retrieval-score-threshold", type=float, default=None,
-                        help=(
-                            "optional cosine ceiling; top-1 below this returns top1=None "
-                            "(Tier-1 miss). Default: no threshold (always return top-1)."
-                        ))
-    parser.add_argument("--slice-tag", default=None,
-                        choices=["in-domain", "out-of-domain", "combined"],
-                        help=(
-                            "tag this run as in-domain / out-of-domain / combined; "
-                            "written to MLflow run tag (not CSV row). Default: untagged."
-                        ))
+    parser.add_argument(
+        "--gold-path",
+        type=Path,
+        default=DEFAULT_GOLD,
+        help=f"path to gold JSONL (default: {DEFAULT_GOLD})",
+    )
+    parser.add_argument(
+        "--models",
+        default="groq,gemini",
+        help="comma-separated model aliases: groq,gemini,retrieval",
+    )
+    parser.add_argument(
+        "--judge", default="gemini-2.5-flash", help="judge model (default: gemini-2.5-flash)"
+    )
+    parser.add_argument(
+        "--output-csv",
+        type=Path,
+        default=DEFAULT_OUTPUT,
+        help=f"per-row CSV output (default: {DEFAULT_OUTPUT})",
+    )
+    parser.add_argument(
+        "--run-name",
+        required=False,
+        default=None,
+        help="MLflow parent run name (required for live runs)",
+    )
+    parser.add_argument(
+        "--prompt-variant",
+        default="unconstrained-m0",
+        help="propagated to MLflow tags + downstream comparability notes",
+    )
+    parser.add_argument(
+        "--groq-model",
+        default=None,
+        help="override Groq model id (default: llama-3.3-70b-versatile)",
+    )
+    parser.add_argument(
+        "--gemini-model", default=None, help="override Gemini model id (default: gemini-2.5-flash)"
+    )
+    parser.add_argument(
+        "--retrieval-index-path",
+        type=Path,
+        default=None,
+        help="path to FAISS index (required when retrieval is in --models)",
+    )
+    parser.add_argument(
+        "--retrieval-embedder",
+        default=DEFAULT_RETRIEVAL_EMBEDDER,
+        help=f"retrieval embedder (default: {DEFAULT_RETRIEVAL_EMBEDDER})",
+    )
+    parser.add_argument(
+        "--retrieval-score-threshold",
+        type=float,
+        default=None,
+        help=(
+            "optional cosine ceiling; top-1 below this returns top1=None "
+            "(Tier-1 miss). Default: no threshold (always return top-1)."
+        ),
+    )
+    parser.add_argument(
+        "--slice-tag",
+        default=None,
+        choices=["in-domain", "out-of-domain", "combined"],
+        help=(
+            "tag this run as in-domain / out-of-domain / combined; "
+            "written to MLflow run tag (not CSV row). Default: untagged."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--dry-run", action="store_true",
-                        help="validate gold + build prompts, no API calls")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="validate gold + build prompts, no API calls"
+    )
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -183,8 +224,12 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.seed,
         slice_tag=args.slice_tag,
     )
-    log.info("wrote %s (%d rows across %d models)",
-             report.csv_path, len(report.rows), len(report.per_model))
+    log.info(
+        "wrote %s (%d rows across %d models)",
+        report.csv_path,
+        len(report.rows),
+        len(report.per_model),
+    )
     for model, agg in report.per_model.items():
         log.info(
             "  %s: tier1=%.3f  tier2_mean=%.3f  pct>=0.7=%.3f  n=%d",

@@ -24,7 +24,6 @@ in `envs/eval/pyproject.toml` and `consumer/pyproject.toml`.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from daccord.gold import GoldSet
@@ -65,9 +64,7 @@ def _stem_paths(output_path: Path) -> tuple[Path, Path]:
 
 
 @validated
-def build_index(
-    gold: GoldSet, embedder_name: str, output_path: Path
-) -> tuple[Path, Path]:
+def build_index(gold: GoldSet, embedder_name: str, output_path: Path) -> tuple[Path, Path]:
     """Embed every gold pair's `source_mechanism` and write a FAISS index.
 
     Returns `(faiss_path, jsonl_path)` — the two artifacts written. Caller

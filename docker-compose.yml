@@ -1,0 +1,127 @@
+# d'accord dev environment — Linux containers replacing the Windows-native
+# conda + uv setup. See CLAUDE.md for the full invocation pattern.
+#
+# Naming: services map 1:1 to top-level pipeline stages.
+#   - root      → shared daccord lib (src/daccord/, tests/, ruff/pyright/pytest)
+#   - eval      → envs/eval/   (tier 2B harness + retrieval baseline at 12B)
+#   - audit     → envs/audit/  (tier 2C tokenizer audit)
+#   - bakeoff   → envs/bakeoff/ (tier 2D Marker vs Typhoon-OCR; GPU service)
+#   - consumer  → consumer/    (Streamlit side-by-side; lands at tier 12C)
+#
+# Volume strategy:
+#   - Project source: bind-mounted from Windows host at /workspace.
+#     Code edits via Windows IDE land instantly in the container.
+#   - .venv per env: named volume overlays the bind mount path. Keeps Linux
+#     binaries out of the Windows host filesystem and avoids Docker-Desktop
+#     bind-mount I/O cost on uv's hot path. Wipe via:
+#       docker volume rm d-accord_daccord-venv-eval
+#   - uv wheel cache: shared named volume across all services. Pulling torch
+#     once benefits eval + bakeoff + future training.
+#   - HF model cache: shared named volume. MPNet (~500MB) + future Qwen2.5-7B
+#     (~15GB) download once, reused.
+#
+# Usage pattern (full reference in CLAUDE.md):
+#   docker compose run --rm root uv sync
+#   docker compose run --rm eval uv run pytest
+#   docker compose run --rm bakeoff python -c "import torch; ..."
+
+services:
+  root:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace
+      - daccord-uv-cache:/root/.cache/uv
+      - daccord-hf-cache:/root/.cache/huggingface
+      - daccord-venv-root:/workspace/.venv
+    working_dir: /workspace
+    # tty + stdin_open make `docker compose run --rm root bash` interactive.
+    # `docker compose run --rm root uv sync` overrides this with the bash one-shot.
+    tty: true
+    stdin_open: true
+
+  eval:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace
+      - daccord-uv-cache:/root/.cache/uv
+      - daccord-hf-cache:/root/.cache/huggingface
+      - daccord-venv-eval:/workspace/envs/eval/.venv
+    working_dir: /workspace/envs/eval
+    # API keys for Groq + Gemini live in .env.local (gitignored on host).
+    # env_file picks them up so live runs work; absent keys are tolerated for
+    # dry-runs + pytest (the harness uses fake clients there).
+    env_file:
+      - path: .env.local
+        required: false
+    tty: true
+    stdin_open: true
+
+  audit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace
+      - daccord-uv-cache:/root/.cache/uv
+      - daccord-hf-cache:/root/.cache/huggingface
+      - daccord-venv-audit:/workspace/envs/audit/.venv
+    working_dir: /workspace/envs/audit
+    tty: true
+    stdin_open: true
+
+  consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Streamlit's default port. `docker compose run --rm --service-ports consumer
+    # streamlit run app.py` exposes it; plain `run` does not unless ports is set
+    # at service level.
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/workspace
+      - daccord-uv-cache:/root/.cache/uv
+      - daccord-hf-cache:/root/.cache/huggingface
+      - daccord-venv-consumer:/workspace/consumer/.venv
+    working_dir: /workspace/consumer
+    env_file:
+      - path: .env.local
+        required: false
+    tty: true
+    stdin_open: true
+
+  bakeoff:
+    build:
+      context: .
+      dockerfile: Dockerfile.cuda
+    # GPU passthrough — requires Docker Desktop with WSL2 backend + an NVIDIA
+    # Windows driver supporting CUDA 12.8+. Verified at write time: driver
+    # 581.15 + RTX 5080 work end-to-end with `--gpus all`.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - .:/workspace
+      - daccord-uv-cache:/root/.cache/uv
+      - daccord-hf-cache:/root/.cache/huggingface
+      - daccord-venv-bakeoff:/workspace/envs/bakeoff/.venv
+    working_dir: /workspace/envs/bakeoff
+    tty: true
+    stdin_open: true
+
+volumes:
+  daccord-uv-cache:
+  daccord-hf-cache:
+  daccord-venv-root:
+  daccord-venv-eval:
+  daccord-venv-audit:
+  daccord-venv-bakeoff:
+  daccord-venv-consumer:

@@ -1,0 +1,28 @@
+# Keep image-build context lean.
+# .venv directories are owned by per-env named volumes inside the container
+# (see docker-compose.yml); never copy host .venvs in.
+.venv
+envs/*/.venv
+consumer/.venv
+
+# Data lives on host filesystem (bind-mounted) but should never bloat
+# the image-build context. Largest is data/parser_bakeoff/ + future PDFs.
+data/
+mlruns/
+costs/inflight.sqlite
+
+# Tooling caches — also bind-mounted or volume-mounted, never copied in.
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# VCS + IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Plans + memory live outside the project on the host
+*.swp

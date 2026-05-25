@@ -1,5 +1,11 @@
 # Toy gold v1 — 20-pair coverage matrix
 
+> ⚠ **`toy_v1.jsonl` is an UNVALIDATED DRAFT** (status 2026-05-25): 0 / 20 pairs
+> have been human-verified against authoritative PDFs. This file documents the
+> *coverage plan*; **citation correctness** is the separate concern flagged in
+> [toy_v1_provenance.md](toy_v1_provenance.md) — read its top banner before
+> consuming `toy_v1.jsonl` as M0 gold.
+
 Pre-plan for [toy_v1.jsonl](toy_v1.jsonl) per the 2A creation plan in
 [docs/development_plan.md §9.2](../../docs/development_plan.md). Committed so the
 20-pair selection is defensible: every M0 baseline + M4 per-jurisdiction breakdown

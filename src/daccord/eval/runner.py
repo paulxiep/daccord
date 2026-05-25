@@ -233,9 +233,7 @@ def run_eval(
                         **({"slice_tag": slice_tag} if slice_tag is not None else {}),
                     }
                 )
-                model_name, rows, agg = _run_one_model(
-                    gen, judge, gold, child_name, prompt_variant
-                )
+                model_name, rows, agg = _run_one_model(gen, judge, gold, child_name, prompt_variant)
                 all_rows.extend(rows)
                 per_model[model_name] = agg
 

@@ -228,9 +228,9 @@ Sections 2–4 describe sequencing at the tier-row granularity. This section zoo
 |---|---|---|
 | 1A repo skeleton + lockfile | ✓ Done | See §9.1 |
 | 1B MLflow plumbing | ✓ Done (manual; framework `autolog` deferred to 10A) | See §9.1 |
-| 1C per-provider RPD caps | ⚠ Partial — Groq + Gemini wired; Cerebras + DeepSeek absent | Closure plan in §9.1 |
+| 1C per-provider RPD caps | ✓ Done (2026-05-25) — Groq + Gemini + Cerebras + DeepSeek all wired with verified quotas | See §9.1 |
 | 1D PDF corpus download | ✓ Done — 13 PDFs across 8 jurisdictions | See §9.1 |
-| 2A 20-pair toy gold | ❌ Not built — pipeline + provenance template exist, but `data/gold/toy_v1.jsonl` is absent | **M0 blocker for tier 3A.** Creation plan in §9.2 |
+| 2A 20-pair toy gold | ⚠ Drafted but **0/20 human-verified** (2026-05-25) — `data/gold/toy_v1.jsonl` exists and is schema-valid (`dataset_hash = 41250143…`); 10 pairs are STUBs (best-guess citation_id), 10 are claude-extract-only. See the banner at the top of [data/gold/toy_v1_provenance.md](../data/gold/toy_v1_provenance.md). | **M0 still blocked** until author verification pass completes; tier 3A *can* run mechanically against the draft but its numbers are against unvalidated gold and must not be cited |
 | 2B eval harness | ✓ Done — citation match + Gemini judge; tested end-to-end | See §9.2 |
 | 2C tokenizer audit | ✓ Done & PASS for th/fr/de/en — R4 resolved | See §9.2 |
 | 2D parser bake-off | ✓ Done — Marker locked; R1 resolved | See §9.2 |
@@ -259,16 +259,16 @@ Sections 2–4 describe sequencing at the tier-row granularity. This section zoo
 - Smoke test: [scripts/mlflow_smoke_test.py](../scripts/mlflow_smoke_test.py) exercises the plumbing end-to-end (URI resolution, run creation, param logging) and can be re-run anytime to validate the local MLflow store. Local backend at `mlruns/` (gitignored); Phase 2 swaps via `MLFLOW_TRACKING_URI` with no code change.
 - Reuse: [src/daccord/eval/runner.py](../src/daccord/eval/runner.py) calls `setup_mlflow` + `log_standard_params` per parent run, nests one child run per generator, and logs metrics via `mlflow.log_metric()`. Tier 10A will add `mlflow.<flavor>.autolog()` at the top of `training/train.py`; the manual contract from 1B continues alongside.
 
-**1C — Per-provider RPD caps.** Cost tracker is operational for **2 of 4** intended free-tier providers; closure plan below.
+**1C — Per-provider RPD caps.** ✓ Closed 2026-05-25. Cost tracker covers all 4 intended free-tier providers.
 
 What's wired today:
 
-- [costs/config.toml](../costs/config.toml) — committed for audit trail. `[caps_requests_per_day]` currently lists `groq = 14400` and `google_gemini = 1500`. Paid-spill fallback (`anthropic`, `openai`, `together`) configured under `[caps_usd_per_day]` with `[pricing.*]` tables, unused in Phase 1.
+- [costs/config.toml](../costs/config.toml) — committed for audit trail. `[caps_requests_per_day]` now lists `groq = 14400`, `google_gemini = 1500`, `cerebras = 1000`, `deepseek = 1000`. Cerebras cap derived from the 1M-tokens/day published [Cerebras free-tier limits](https://inference-docs.cerebras.ai/support/rate-limits) (the 5 RPM ceiling is the real bottleneck for tier 7A pacing); DeepSeek is a 5M-token signup credit (one-time, not recurring) — RPD here is a budgetary aid only, tier 7A must monitor cumulative token spend separately. Paid-spill fallback (`anthropic`, `openai`, `together`) remains under `[caps_usd_per_day]`, unused in Phase 1.
 - [src/daccord/costs/](../src/daccord/costs/) — `config.py` (loads TOML, `Provider` Literal, `kind_of(provider)` classifies free_tier vs paid), `tracker.py` (`preflight()` raises `CapExceeded` before a call; `record_call()` logs + re-checks), `storage.py` (SQLite WAL inflight ledger, thread-safe), `cli.py` (`python -m daccord.costs status` / `rollup`).
 - Override env vars: `DACCORD_COSTS_OVERRIDE=1` (bypass caps; e.g. for testing), plus path overrides for repo root / config / inflight DB / daily CSV.
 - Wired into [src/daccord/eval/clients.py](../src/daccord/eval/clients.py) — every `GroqClient.generate` and `GeminiClient.generate` call routes through `preflight` (pre-call RPD check using a `chars/4` heuristic) and `record_call` (post-call with actual SDK-reported token counts).
 
-**1C completion plan** (config-only; independent of tier 3A; required before tier 7A ensemble starts):
+**1C completion plan — ✓ DONE 2026-05-25.** (Steps below preserved as historical record; CerebrasClient + DeepSeekClient *adapters* remain tier-7A scope.):
 
 1. **Verify free-tier quotas at run time** — Cerebras Cloud and DeepSeek publish quotas separately from their docs landing pages and revise frequently. Look up the current published numbers, record the URL + checked-on date in the commit message. If a provider lacks a clear RPD figure (Cerebras historically advertises tokens/min ceilings rather than raw RPD), set a conservative cap (e.g. 1000) and document the rationale inline in `costs/config.toml`.
 2. **Extend the `Provider` Literal** in [src/daccord/costs/config.py](../src/daccord/costs/config.py) from `("anthropic", "openai", "together", "groq", "google_gemini")` to add `("cerebras", "deepseek")`. Both classified as `free_tier` by `kind_of(provider)` — re-read that method to confirm classification is enum-driven vs table-driven and add the entry in the right branch; do not accidentally add to the paid set.
@@ -287,13 +287,24 @@ What's wired today:
 
 ### 9.2 — Tier 2 detail (what landed + 2A creation plan)
 
-**2A — 20-pair hand-built toy gold.** ❌ **Not built.** The pipeline is wired; the artifact is missing; M0 cannot close until this lands.
+**2A — 20-pair hand-built toy gold.** ⚠ **Drafted 2026-05-25 but 0/20 human-verified.** The artifact exists and is schema-valid; the *credential's "human-verified" bar* is not met yet. M0 cannot close until the author completes the per-pair PDF pass — see the banner at the top of [data/gold/toy_v1_provenance.md](../data/gold/toy_v1_provenance.md) for the load-bearing warning that future sessions need to see.
 
-What exists:
+What landed:
 
-- Schema: `GoldPair` + `GoldSet` in [src/daccord/gold/schema.py](../src/daccord/gold/schema.py). `GoldSet.from_jsonl(path)` pydantic-validates every row and computes `dataset_hash` (SHA256) for MLflow traceability.
-- Drafter: `envs/eval/scripts/draft_toy_gold.py` calls Llama 3.3-70B (Groq) and Gemini 2.5-Flash (Google AI Studio), produces `data/gold/.draft_llama.jsonl` and `data/gold/.draft_gemini.jsonl` (both gitignored — drafts are LLM-hallucinated until verified). All calls route through `daccord.costs.preflight` + `record_call` so RPD usage hits the ledger.
-- Provenance template: [data/gold/toy_v1_provenance.md](../data/gold/toy_v1_provenance.md) — 20 empty table rows waiting for `drafted_by` / `source_pdf_filename` / `verified_by` / `verification_date` / `notes`. Language-source notes already document which PDF is authoritative per framework (Thai original for PDPA-TH; German for BDSG; etc.).
+- Gold file: [data/gold/toy_v1.jsonl](../data/gold/toy_v1.jsonl) — 20 rows, schema-valid, `dataset_hash = 412501438684f1ea9c2fcfbdcbb92897cb469fd795c61f8839e193824e3880a5`. The hash will change once the author edits any cell during the verification pass.
+- Coverage matrix: [data/gold/toy_v1_coverage.md](../data/gold/toy_v1_coverage.md) — pre-plan of the 20 pairs against jurisdiction × concept × difficulty axes. Coverage gates all PASS mechanically (20 rows, all 8 jurisdictions ≥2, th=4 ≥3, fr=4 ≥3) per [envs/eval/scripts/verify_toy_coverage.py](../envs/eval/scripts/verify_toy_coverage.py). Mechanical pass; does not validate citation correctness.
+- Provenance + double-check punch list: [data/gold/toy_v1_provenance.md](../data/gold/toy_v1_provenance.md) — every row currently `verified_by: UNVERIFIED`. Two tiers of follow-up: 10 STUB rows (best-guess citation_id, likely needs correction) + 10 claude-extract-only rows (citation_id confirmed via direct PDF extract, mechanism text needs author semantic pass).
+- Drafter (unused this round): `envs/eval/scripts/draft_toy_gold.py` calls Llama 3.3-70B (Groq) + Gemini 2.5-Flash (Google AI Studio) and writes `data/gold/.draft_*.jsonl` (gitignored). This round used direct PDF text extraction via [envs/audit/scripts/extract_pdf_text.py](../envs/audit/scripts/extract_pdf_text.py) instead, skipping the LLM-hallucination layer for the 6 frameworks claude could read first-hand (GDPR, PDPA-SG, PDPA-TH English, PDPA-MY, DPA-PH, BDSG English).
+
+What's still needed before M0 can close (per the 2A acceptance criteria below):
+
+1. Author opens each `data/raw/<jur>/<framework>/` PDF; for each pair confirms (a) citation_id exists with that exact string, (b) `*_mechanism` paraphrase is faithful to actual text.
+2. STUB rows additionally need the citation_id corrected, not just confirmed (FR Loi I+L post-2018 renumbering, BDSG Sec 38 threshold, UK DPA 2018 Part 3 sections, etc.).
+3. `verified_by` + `verification_date` cells in the provenance table get populated row-by-row.
+4. PENDING notes in the JSONL's `notes` field get removed once the row is verified (changing `dataset_hash`).
+5. Re-run [verify_toy_coverage.py](../envs/eval/scripts/verify_toy_coverage.py) + `run_eval.py --dry-run` to confirm nothing broke during the verification edits.
+
+**If a future session sees weird `eval/baseline_toy.csv` numbers on a TH / FR / DE / UK pair — check the provenance banner first.** If the relevant pair is still flagged STUB, the gold is the bug, not the model under eval.
 
 **2A creation plan** — block tier 3A on this:
 

@@ -29,7 +29,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from daccord.costs import preflight, record_call
 from daccord.costs.config import Provider
@@ -56,19 +56,26 @@ _CANDIDATE_JSON_SCHEMA: dict[str, Any] = {
 }
 
 
+@runtime_checkable
 class ModelClient(Protocol):
     """Single-method protocol for any generator backend used by the eval runner.
 
     `generate` returns a normalized `ModelResponse` regardless of provider.
     `provider` and `model` are surfaced as instance attributes so the runner
     can tag MLflow runs and CSV rows without re-deriving them.
+
+    `@runtime_checkable` lets pydantic `@validated`-decorated functions
+    accept `ModelClient` parameters via isinstance — needed by
+    `daccord.serving.HybridRouter` which takes two ModelClients (retrieval +
+    fine-tune) at construction.
     """
 
     provider: Provider
     model: str
 
-    def generate(self, messages: PromptMessages, *, run_id: str, batch_id: str) -> ModelResponse:
-        ...
+    def generate(
+        self, messages: PromptMessages, *, run_id: str, batch_id: str
+    ) -> ModelResponse: ...
 
 
 def _estimate_tokens(messages: PromptMessages) -> int:
@@ -206,7 +213,13 @@ class RetrievalClient:
         self._embedder_name = embedder_name
         self._score_threshold = score_threshold
         self._embedder = SentenceTransformer(embedder_name)
-        self._index, self._entries = load_index(index_path)
+        # `load_index` returns a faiss.Index typed as `object` because faiss
+        # is a deferred import (no public type stubs). Narrow to Any here so
+        # `.ntotal` + `.search(...)` don't trip pyright; the dynamic
+        # attributes are exercised by test_retrieval_client.
+        loaded_index, loaded_entries = load_index(index_path)
+        self._index: Any = loaded_index
+        self._entries: list[RetrievalIndexEntry] = loaded_entries
         # Pre-bucket entries by target_jurisdiction so filtering at query time
         # is O(1) lookup + O(k) cosine over the bucket, not O(n) over all
         # entries. For the gold-set sizes here (500–1000 entries) this is
@@ -219,9 +232,7 @@ class RetrievalClient:
         self._buckets = buckets
 
     @validated
-    def generate(
-        self, messages: PromptMessages, *, run_id: str, batch_id: str
-    ) -> ModelResponse:
+    def generate(self, messages: PromptMessages, *, run_id: str, batch_id: str) -> ModelResponse:
         # Both fields are populated by build_eval_prompt; defensive guard
         # because PromptMessages allows them as None for API clients.
         if messages.source_clause_text is None or messages.target_jurisdiction is None:
@@ -248,17 +259,14 @@ class RetrievalClient:
                 output_tokens=0,
                 latency_ms=0.0,
                 parse_error=(
-                    f"no indexed entries for target_jurisdiction="
-                    f"{messages.target_jurisdiction!r}"
+                    f"no indexed entries for target_jurisdiction={messages.target_jurisdiction!r}"
                 ),
             )
 
         try:
             import numpy as np
         except ImportError as exc:  # pragma: no cover
-            raise RuntimeError(
-                "numpy not installed (envs/eval or consumer env)"
-            ) from exc
+            raise RuntimeError("numpy not installed (envs/eval or consumer env)") from exc
 
         t0 = time.perf_counter()
         raw_q = self._embedder.encode(
@@ -327,8 +335,7 @@ class RetrievalClient:
             # gold pair, not from generative reasoning. Includes cosine
             # so a consumer can show confidence.
             mapping_justification=(
-                f"Retrieved verbatim from gold pair {best_entry.gold_id} "
-                f"(cosine={best_score:.4f})"
+                f"Retrieved verbatim from gold pair {best_entry.gold_id} (cosine={best_score:.4f})"
             ),
         )
         raw_text = json.dumps(

@@ -6,12 +6,26 @@ build-backend = "hatchling.build"
 name = "daccord"
 version = "0.0.1"
 description = "Cross-jurisdiction regulatory clause mapping. Privacy MVP across SEA + EU; legal-domain extensible."
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.13,<3.15"
 dependencies = [
     "pydantic>=2.13,<3",
-    "mlflow>=2.18,<3",
+    "mlflow>=3,<4",
     "httpx>=0.28,<0.29",
     "pyyaml>=6",
+    # mlflow caps pyarrow<24; pin a floor that has Python 3.14 wheels (both
+    # Linux + Windows). pyarrow 19.0.1 (the default mlflow 2.18 transitively
+    # pulls) has no cp314 wheel and falls back to a from-source build that
+    # needs Arrow C++ headers. pyarrow 23.0.0 ships cp310–cp314 wheels and
+    # satisfies the <24 ceiling.
+    "pyarrow>=23,<24",
+    # matplotlib (transitive from mlflow) pulls in pillow; the resolver picks
+    # pillow 10.4.0 by default which predates Python 3.14 (no cp314 wheels
+    # for any platform). Pin to pillow 12 ONLY on 3.14+ — on 3.13 the default
+    # transitive pillow 10.x has cp313 wheels and (critically) satisfies
+    # marker-pdf's `pillow<11` ceiling in envs/bakeoff/. The conditional
+    # marker keeps bakeoff (Python 3.13) installable while root/eval/audit/
+    # consumer (Python 3.14) get the cp314-wheel-having pillow 12.
+    "pillow>=12,<13; python_version >= '3.14'",
     # Tier 2B (eval harness) provider SDKs — `groq`, `google-genai` — live in
     # envs/eval/ so the shared venv stays decoupled from per-provider version
     # churn (e.g. marker-pdf in envs/bakeoff/ wants google-genai<2).
@@ -33,7 +47,7 @@ package = true
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 # E/F: pycodestyle/pyflakes basics; I: import sorting; B: bugbear; UP: pyupgrade
@@ -47,7 +61,7 @@ quote-style = "double"
 
 [tool.pyright]
 include = ["src", "tests"]
-pythonVersion = "3.12"
+pythonVersion = "3.14"
 typeCheckingMode = "basic"
 venvPath = "."
 venv = ".venv"

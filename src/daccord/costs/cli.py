@@ -44,20 +44,24 @@ def cmd_status(_args: argparse.Namespace) -> int:
     config = load_config()
     today = datetime.now(UTC).date().isoformat()
     per_day = daily_provider_totals()
-    paid_providers: list[Provider] = [p for p in PROVIDERS if config.kind_of(p) == "paid"]
-    free_providers: list[Provider] = [p for p in PROVIDERS if config.kind_of(p) == "free_tier"]
+    # Local-only providers (e.g. "retrieval") have no cap entry; `kind_of`
+    # would raise on them. Check membership directly so PROVIDERS can include
+    # local-only entries without breaking status reporting.
+    paid_providers: list[Provider] = [p for p in PROVIDERS if p in config.caps_usd_per_day]
+    free_providers: list[Provider] = [p for p in PROVIDERS if p in config.caps_requests_per_day]
     streaks = {
         p: _streak_days_over(per_day, p, config.warning_threshold_usd) for p in paid_providers
     }
     print(f"D'accord cost status  ({today} UTC)")
-    print(f"  warning >= ${config.warning_threshold_usd:.2f}/d   "
-          f"alert at {config.consecutive_days_for_alert}+ consecutive days\n")
+    print(
+        f"  warning >= ${config.warning_threshold_usd:.2f}/d   "
+        f"alert at {config.consecutive_days_for_alert}+ consecutive days\n"
+    )
     for p in paid_providers:
         cap = config.cap_for(p)
         spent = today_spend(p)
         flag = _flag(spent, cap, config.warning_threshold_usd)
-        print(f"  {p:<14}  today ${spent:>7.4f} / cap ${cap:>5.2f}   "
-              f"streak {streaks[p]}d  {flag}")
+        print(f"  {p:<14}  today ${spent:>7.4f} / cap ${cap:>5.2f}   streak {streaks[p]}d  {flag}")
     for p in free_providers:
         rpd_cap = config.request_cap_for(p)
         n = today_requests(p)
@@ -84,9 +88,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "status", help="print today's spend per provider; exit 1 if R7 alert"
     ).set_defaults(func=cmd_status)
-    sub.add_parser(
-        "rollup", help="rebuild costs/daily.csv from inflight.sqlite"
-    ).set_defaults(func=cmd_rollup)
+    sub.add_parser("rollup", help="rebuild costs/daily.csv from inflight.sqlite").set_defaults(
+        func=cmd_rollup
+    )
     return parser
 
 

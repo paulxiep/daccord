@@ -137,9 +137,7 @@ class _FakeJudge:
         # (the gold answers) in the rendered prompt; 0.2 otherwise.
         text = messages.user
         if any(g in text for g in ("Section 24", "Section 33", "Section 13")):
-            return JudgeScore(
-                score=1.0, bucket="exact", reasoning="ok", judge_model=self.model
-            )
+            return JudgeScore(score=1.0, bucket="exact", reasoning="ok", judge_model=self.model)
         return JudgeScore(
             score=0.2, bucket="partial_wrong", reasoning="off", judge_model=self.model
         )

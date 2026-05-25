@@ -2,6 +2,8 @@
 
 Tier 2B deliverable. The harness reused at M0 (toy gold, baselines) and M4 (full gold, post-train results) — same code, same CSV row contract, same MLflow shape, different input.
 
+> ⚠ **Gold-set status (2026-05-25)**: [data/gold/toy_v1.jsonl](../data/gold/toy_v1.jsonl) is an **unvalidated draft** — 0 / 20 pairs human-verified, 10 STUB rows with best-guess citation_ids. Running this harness against the toy gold today *will* produce `eval/baseline_toy.csv` numbers, but they are against unvalidated gold and **must not be cited as M0 baselines**. M0 stays open until [data/gold/toy_v1_provenance.md](../data/gold/toy_v1_provenance.md) drops the banner at its top. See [docs/development_plan.md §9.2](../docs/development_plan.md) for the 2A closure plan.
+
 ## CSV row contract
 
 Stable from M0 → M4. Future readers (interview demo notebook, M4 README table) parse this format:

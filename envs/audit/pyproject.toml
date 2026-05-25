@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "daccord-audit-env"
 version = "0.0.0"
 description = "Tier-2C tokenizer audit env. Loads Qwen2.5 tokenizer + reads PDFs; heavy deps live here so the shared daccord venv stays slim."
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "daccord",
     # Latest stable lines (verified 2026-05-23). Held back here only by 2C's

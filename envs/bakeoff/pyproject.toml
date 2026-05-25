@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "daccord-bakeoff-env"
 version = "0.0.0"
 description = "Tier-2D parser bake-off env (Marker vs Typhoon-OCR). Heavy GPU deps live here so the shared daccord venv stays slim."
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.13,<3.14"
 dependencies = [
     "daccord",
     "pymupdf>=1.27,<2",

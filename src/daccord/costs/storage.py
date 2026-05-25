@@ -119,8 +119,7 @@ def count_today(provider: Provider, db_path: Path | None = None) -> int:
     today = datetime.now(UTC).date().isoformat()
     with _connect(db_path) as conn:
         cur = conn.execute(
-            "SELECT COUNT(*) FROM inflight "
-            "WHERE provider = ? AND substr(ts_utc, 1, 10) = ?",
+            "SELECT COUNT(*) FROM inflight WHERE provider = ? AND substr(ts_utc, 1, 10) = ?",
             (provider, today),
         )
         return int(cur.fetchone()[0])

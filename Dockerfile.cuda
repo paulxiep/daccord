@@ -1,0 +1,48 @@
+# GPU dev image for d'accord — used by bakeoff (Marker + Typhoon-OCR) and
+# (future) training (QLoRA on Qwen2.5-7B).
+#
+# Base: nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04
+#   - CUDA 12.8 = first-class Blackwell (RTX 5080, compute capability 12.0) support
+#   - cudnn-runtime variant bundles cuDNN 9.x at runtime (smaller than -devel)
+#   - ubuntu24.04 = current LTS, matches what AWS Deep Learning AMIs run
+#
+# Host driver requirement: NVIDIA Windows driver supporting CUDA 12.8+
+# (verified 2026-05-25: driver 581.15 supports CUDA 13.0; comfortable headroom).
+# Driver passes through via Docker Desktop's WSL2 backend + bundled
+# nvidia-container-toolkit — no host-side CUDA Toolkit install required.
+#
+# Why uv python install 3.14: Ubuntu 24.04 ships Python 3.12 by default.
+# Installing python3.14 from a PPA on Ubuntu is fragile (deadsnakes lags;
+# 3.14 wheels for system Python paths aren't always there). uv manages its
+# own Python in its cache — installs in ~10 seconds, isolated from system
+# Python, version-pinned per project via .python-version.
+
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    UV_LINK_MODE=copy \
+    DEBIAN_FRONTEND=noninteractive
+
+# git: dep source URLs
+# build-essential: wheel-build fallback (rare on Linux 3.14)
+# ca-certificates: HTTPS
+# curl: image-debug convenience
+# python3-pip: needed to bootstrap uv (since base image has no Python)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        build-essential \
+        ca-certificates \
+        curl \
+        python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# --break-system-packages: Ubuntu 24.04's system pip is PEP 668 marked;
+# we're installing exactly one bootstrap tool (uv) so the break is contained.
+RUN pip install --no-cache-dir --break-system-packages uv
+
+# Pre-install Python 3.14 into uv's cache so first `uv sync` doesn't pay
+# the 10s download cost. Uses uv's managed Python (not a system install).
+RUN uv python install 3.14
+
+WORKDIR /workspace

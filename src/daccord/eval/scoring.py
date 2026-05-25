@@ -123,8 +123,7 @@ class JudgeClient(Protocol):
     provider: Provider
     model: str
 
-    def judge(self, messages: PromptMessages, *, run_id: str, batch_id: str) -> JudgeScore:
-        ...
+    def judge(self, messages: PromptMessages, *, run_id: str, batch_id: str) -> JudgeScore: ...
 
 
 _JUDGE_JSON_SCHEMA = {
@@ -225,9 +224,7 @@ class GeminiJudge:
         raw_text = resp.text or ""
         usage = resp.usage_metadata
         actual_in = int(getattr(usage, "prompt_token_count", None) or est_in)
-        actual_out = int(
-            getattr(usage, "candidates_token_count", None) or (len(raw_text) // 4)
-        )
+        actual_out = int(getattr(usage, "candidates_token_count", None) or (len(raw_text) // 4))
         record_call(
             self.provider, self.model, actual_in, actual_out, run_id=run_id, batch_id=batch_id
         )
@@ -288,9 +285,7 @@ class EvalRow(ValidatedModel):
 
 
 @validated
-def build_eval_row(
-    gold: GoldPair, response: ModelResponse, judge_score: JudgeScore
-) -> EvalRow:
+def build_eval_row(gold: GoldPair, response: ModelResponse, judge_score: JudgeScore) -> EvalRow:
     predicted = response.top1.citation_id if response.top1 is not None else ""
     return EvalRow(
         gold_id=gold.id,
@@ -369,12 +364,8 @@ def aggregate_rows(rows: list[EvalRow]) -> EvalAggregates:
         by_target_jurisdiction={
             k: _agg(v) for k, v in _group_by(rows, "target_jurisdiction").items()
         },
-        by_target_language={
-            k: _agg(v) for k, v in _group_by(rows, "target_language").items()
-        },
-        by_framework_pair={
-            k: _agg(v) for k, v in _group_by_framework_pair(rows).items()
-        },
+        by_target_language={k: _agg(v) for k, v in _group_by(rows, "target_language").items()},
+        by_framework_pair={k: _agg(v) for k, v in _group_by_framework_pair(rows).items()},
     )
 
 

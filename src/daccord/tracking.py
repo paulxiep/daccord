@@ -56,7 +56,7 @@ def get_git_commit(short: int = 12) -> str:
             check=True,
             timeout=5,
         )
-    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+    except subprocess.SubprocessError, FileNotFoundError, OSError:
         return "unknown"
     return result.stdout.strip() or "unknown"
 

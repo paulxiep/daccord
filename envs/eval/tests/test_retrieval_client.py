@@ -64,16 +64,12 @@ class _FakeSentenceTransformer:
     def encode(self, texts: list[str], **kwargs: Any) -> Any:
         import numpy as np
 
-        return np.asarray(
-            [_stable_hash_embed(t) for t in texts], dtype=np.float32
-        )
+        return np.asarray([_stable_hash_embed(t) for t in texts], dtype=np.float32)
 
 
 @pytest.fixture
 def fake_embedder(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "sentence_transformers.SentenceTransformer", _FakeSentenceTransformer
-    )
+    monkeypatch.setattr("sentence_transformers.SentenceTransformer", _FakeSentenceTransformer)
 
 
 def _mk_pair(
@@ -102,16 +98,18 @@ def _mk_pair(
 @pytest.fixture
 def tiny_gold(tmp_path: Path) -> GoldSet:
     pairs = [
-        _mk_pair("p1", "Security of processing.", "sg", "Section 24",
-                 "Reasonable security arrangements."),
-        _mk_pair("p2", "Right to erasure.", "th", "Section 33",
-                 "Right to be forgotten under Thai PDPA."),
-        _mk_pair("p3", "Lawfulness, fairness, transparency.", "sg", "Section 13",
-                 "Consent obligation."),
+        _mk_pair(
+            "p1", "Security of processing.", "sg", "Section 24", "Reasonable security arrangements."
+        ),
+        _mk_pair(
+            "p2", "Right to erasure.", "th", "Section 33", "Right to be forgotten under Thai PDPA."
+        ),
+        _mk_pair(
+            "p3", "Lawfulness, fairness, transparency.", "sg", "Section 13", "Consent obligation."
+        ),
         # Same source text as p1 but target jurisdiction th — used to verify
         # jurisdiction filtering routes correctly even on collision.
-        _mk_pair("p4", "Security of processing.", "th", "Section 37",
-                 "Thai security obligation."),
+        _mk_pair("p4", "Security of processing.", "th", "Section 37", "Thai security obligation."),
     ]
     jsonl = tmp_path / "tiny.jsonl"
     jsonl.write_text(
@@ -122,9 +120,7 @@ def tiny_gold(tmp_path: Path) -> GoldSet:
 
 
 class TestBuildIndex:
-    def test_round_trip(
-        self, tiny_gold: GoldSet, tmp_path: Path, fake_embedder: None
-    ) -> None:
+    def test_round_trip(self, tiny_gold: GoldSet, tmp_path: Path, fake_embedder: None) -> None:
         out = tmp_path / "indices" / "tiny"
         faiss_path, jsonl_path = build_index(tiny_gold, EMBEDDER_NAME, out)
         assert faiss_path.exists()
@@ -145,9 +141,7 @@ class TestBuildIndex:
         self, tiny_gold: GoldSet, tmp_path: Path, fake_embedder: None
     ) -> None:
         # Passing `.faiss` should not produce a `.faiss.faiss` file
-        faiss_path, jsonl_path = build_index(
-            tiny_gold, EMBEDDER_NAME, tmp_path / "tiny.faiss"
-        )
+        faiss_path, jsonl_path = build_index(tiny_gold, EMBEDDER_NAME, tmp_path / "tiny.faiss")
         assert faiss_path.name == "tiny.faiss"
         assert jsonl_path.name == "tiny.jsonl"
 
@@ -189,12 +183,14 @@ class TestRetrievalClient:
         client = RetrievalClient(index_path=out, embedder_name=EMBEDDER_NAME)
 
         msg_sg = PromptMessages(
-            system="s", user="u",
+            system="s",
+            user="u",
             source_clause_text="Security of processing.",
             target_jurisdiction="sg",
         )
         msg_th = PromptMessages(
-            system="s", user="u",
+            system="s",
+            user="u",
             source_clause_text="Security of processing.",
             target_jurisdiction="th",
         )
@@ -212,7 +208,8 @@ class TestRetrievalClient:
         build_index(tiny_gold, EMBEDDER_NAME, out)
         client = RetrievalClient(index_path=out, embedder_name=EMBEDDER_NAME)
         messages = PromptMessages(
-            system="s", user="u",
+            system="s",
+            user="u",
             source_clause_text="Security of processing.",
             target_jurisdiction="my",  # not in tiny_gold
         )
@@ -240,11 +237,10 @@ class TestRetrievalClient:
         out = tmp_path / "tiny"
         build_index(tiny_gold, EMBEDDER_NAME, out)
         # Threshold above 1.0 forces every query to fall below.
-        client = RetrievalClient(
-            index_path=out, embedder_name=EMBEDDER_NAME, score_threshold=2.0
-        )
+        client = RetrievalClient(index_path=out, embedder_name=EMBEDDER_NAME, score_threshold=2.0)
         messages = PromptMessages(
-            system="s", user="u",
+            system="s",
+            user="u",
             source_clause_text="Security of processing.",
             target_jurisdiction="sg",
         )

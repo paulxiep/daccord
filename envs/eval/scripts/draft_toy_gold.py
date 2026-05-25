@@ -40,8 +40,15 @@ DEFAULT_LLAMA_MODEL = "llama-3.3-70b-versatile"
 DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
 
 FRAMEWORKS: tuple[str, ...] = (
-    "gdpr", "uk_gdpr", "dpa_2018", "bdsg", "loi_il",
-    "pdpa_sg", "pdpa_th", "dpa_2012_ph", "pdpa_my",
+    "gdpr",
+    "uk_gdpr",
+    "dpa_2018",
+    "bdsg",
+    "loi_il",
+    "pdpa_sg",
+    "pdpa_th",
+    "dpa_2012_ph",
+    "pdpa_my",
 )
 JURISDICTIONS: tuple[str, ...] = ("eu", "uk", "de", "fr", "sg", "th", "ph", "my")
 FRAMEWORK_TO_JURISDICTION: dict[str, str] = {
@@ -313,9 +320,7 @@ def main(argv: list[str] | None = None) -> int:
 
     load_env_file(args.env_file)
     if sum(args.mix) != args.n_pairs:
-        sys.exit(
-            f"--mix {args.mix} sums to {sum(args.mix)}; expected --n-pairs={args.n_pairs}"
-        )
+        sys.exit(f"--mix {args.mix} sums to {sum(args.mix)}; expected --n-pairs={args.n_pairs}")
 
     prompt = build_prompt(args.n_pairs, args.mix)
 
