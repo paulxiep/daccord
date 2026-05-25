@@ -1,26 +1,26 @@
 """Provider adapters for the eval harness.
 
-Two adapters ship at tier 2B for the free-tier OSS direction the project
-took after the costs-config v2 (paid + free_tier) refactor:
+Adapters:
 
-  - `GroqClient`    — Groq-hosted Llama / Qwen / Gemma models
-  - `GeminiClient`  — Google Gemini via `google-genai`
+  - `GroqClient`     — Groq-hosted Llama / Qwen / Gemma (tier 2B)
+  - `GeminiClient`   — Google Gemini via `google-genai` (tier 2B)
+  - `RetrievalClient`— FAISS retrieval baseline (tier 12B; reused at serving)
+  - `LocalHFClient`  — local 4-bit-NF4 Qwen3-8B baseline (tier 3A)
 
-Both use the provider's native JSON-schema constraint:
+API clients (Groq, Gemini) use the provider's native JSON-schema
+constraint:
   - Groq:   `response_format={"type": "json_object"}` (+ schema in the prompt)
   - Gemini: `config.response_schema=<pydantic model>` (first-class)
 
-A `LocalHFClient` for the local Qwen2.5-7B-Instruct baseline is intentionally
-NOT shipped at 2B — `torch` + `bitsandbytes` are not yet in the project
-deps, and Groq does not host Qwen2.5-7B (only Qwen3-32B / Qwen-Coder), so
-the base-Qwen baseline must run locally when tier 3A captures it. That
-tier owns the LocalHF dep + adapter; the `ModelClient` Protocol below is
-the contract it implements.
+Local clients (Retrieval, LocalHF) bypass `daccord.costs.preflight` /
+`record_call` — they have zero $-cost, and `daily.csv` is the spend log,
+not a generic call ledger. Latency + token counts still flow on
+`ModelResponse` (recorded to CSV + MLflow by the runner).
 
-Every API call routes through [daccord.costs.preflight] + [record_call].
-For free-tier providers, the daily cap is RPD (requests-per-day) and
-`estimate_cost` returns 0.0; for paid-spill fallback (Anthropic/OpenAI/
-Together) the cap is USD/day. The contract is identical from the caller.
+API spend tracking: every API call routes through `daccord.costs.preflight`
++ `record_call`. For free-tier providers, the daily cap is RPD; for
+paid-spill (Anthropic/OpenAI/Together) the cap is USD/day. The contract
+is identical from the caller.
 """
 
 from __future__ import annotations
@@ -29,10 +29,11 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from daccord.costs import preflight, record_call
 from daccord.costs.config import Provider
+from daccord.eval._rpm import api_throttle, gemini_retry_on_transient
 from daccord.eval.retrieval_index import RetrievalIndexEntry, load_index
 from daccord.eval.schema import CitationCandidate, ModelResponse, PromptMessages
 from daccord.validation import validated
@@ -106,16 +107,19 @@ def _parse_candidate(raw_text: str) -> tuple[CitationCandidate | None, str | Non
 class GroqClient:
     """Adapter for Groq-hosted OSS models (Llama, Qwen3, Gemma, etc.).
 
-    Default model: `llama-3.3-70b-versatile` — strongest free-tier general
-    LLM at the time of writing; 1k RPD on the published free tier (the
-    project's costs config sets a higher org-wide RPD cap; tighter
-    per-model limits live with the provider).
+    Default model: `meta-llama/llama-4-scout-17b-16e-instruct` — current-
+    generation free-tier Llama via Groq (17B active × 16E MoE). The same
+    class also serves `qwen/qwen3-32b` when `--models qwen3` is selected;
+    only the model string differs, the SDK call shape is identical.
+    Note: when this class serves as both the `groq` generator and the
+    `GroqJudge` judge in the same run, the result is technically self-judging
+    on the `groq` row (a known M0 noise term).
     """
 
     provider: Provider = "groq"
 
     @validated
-    def __init__(self, model: str = "llama-3.3-70b-versatile") -> None:
+    def __init__(self, model: str = "meta-llama/llama-4-scout-17b-16e-instruct") -> None:
         try:
             from groq import Groq  # type: ignore[import-not-found]
         except ImportError as exc:  # pragma: no cover — dep is pinned
@@ -128,21 +132,44 @@ class GroqClient:
 
     @validated
     def generate(self, messages: PromptMessages, *, run_id: str, batch_id: str) -> ModelResponse:
+        from groq import APIError  # type: ignore[import-not-found]
+
         est_in = _estimate_tokens(messages)
-        est_out = 400  # observed ceiling for a single CitationCandidate JSON
+        # Generous budget: Qwen 3-32B and other "thinking" models can emit
+        # ~1000-1500 tokens of <think>…</think> reasoning before the JSON
+        # answer; max_tokens is a ceiling not a floor, so non-thinking
+        # models still stop at their natural ~200-token completion.
+        est_out = 2000
         preflight(self.provider, self.model, est_in, est_out)
+        api_throttle()
 
         t0 = time.perf_counter()
-        resp = self._client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": messages.system},
-                {"role": "user", "content": messages.user},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.0,
-            max_tokens=est_out,
-        )
+        try:
+            resp = self._client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": messages.system},
+                    {"role": "user", "content": messages.user},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.0,
+                max_tokens=est_out,
+            )
+        except APIError as exc:
+            # Per-call failures (400 json_validate_failed, 429 rate-limit, etc.)
+            # are recorded as Tier-1 misses rather than killing the whole run.
+            # Preview models (Llama 4 Scout, Qwen 3-32B) occasionally return
+            # empty completions that Groq's JSON validator rejects with 400.
+            latency_ms = (time.perf_counter() - t0) * 1000.0
+            return ModelResponse(
+                model=self.model,
+                top1=None,
+                raw_text="",
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=latency_ms,
+                parse_error=f"groq api error: {type(exc).__name__}: {exc}",
+            )
         latency_ms = (time.perf_counter() - t0) * 1000.0
 
         raw_text = resp.choices[0].message.content or ""
@@ -360,14 +387,15 @@ class RetrievalClient:
 class GeminiClient:
     """Adapter for Google Gemini (via `google-genai`).
 
-    Default model: `gemini-2.5-flash` — fast, free-tier (1500 RPD per the
-    project's costs config), native JSON-schema constrained output.
+    Default model: `gemini-3.1-flash-lite` — free-tier 15 RPM / 500 RPD;
+    native JSON-schema constrained output. (Older `gemini-2.5-flash` was
+    dropped — its free-tier daily cap was 20 RPD on some accounts.)
     """
 
     provider: Provider = "google_gemini"
 
     @validated
-    def __init__(self, model: str = "gemini-2.5-flash") -> None:
+    def __init__(self, model: str = "gemini-3.1-flash-lite") -> None:
         try:
             from google import genai  # type: ignore[import-not-found]
         except ImportError as exc:  # pragma: no cover
@@ -385,6 +413,7 @@ class GeminiClient:
         est_in = _estimate_tokens(messages)
         est_out = 400
         preflight(self.provider, self.model, est_in, est_out)
+        api_throttle()
 
         config = types.GenerateContentConfig(
             system_instruction=messages.system,
@@ -394,10 +423,12 @@ class GeminiClient:
             response_json_schema=_CANDIDATE_JSON_SCHEMA,
         )
         t0 = time.perf_counter()
-        resp = self._client.models.generate_content(
-            model=self.model,
-            contents=messages.user,
-            config=config,
+        resp = gemini_retry_on_transient(
+            lambda: self._client.models.generate_content(
+                model=self.model,
+                contents=messages.user,
+                config=config,
+            )
         )
         latency_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -418,6 +449,126 @@ class GeminiClient:
             raw_text=raw_text,
             input_tokens=actual_in,
             output_tokens=actual_out,
+            latency_ms=latency_ms,
+            parse_error=parse_error,
+        )
+
+
+class LocalHFClient:
+    """Local 4-bit-NF4 Qwen3-8B baseline (tier 3A).
+
+    Loaded via HuggingFace `transformers` + `bitsandbytes`. Quantisation
+    deliberately matches the load condition the tier 10–12 QLoRA training
+    uses (NF4 + bfloat16 compute + double-quant) so the M4 fine-tune
+    delta is apples-to-apples against the actual production-shape base.
+
+    Default base: `Qwen/Qwen3-8B` (Apr 2025). The earlier `Qwen2.5-7B-Instruct`
+    was the project's locked base at tier 2C tokenizer-audit time; revisited
+    on 2026-05-25 in favour of Qwen 3 (newer multilingual tokenizer, similar
+    VRAM footprint at NF4).
+
+    Local-only: bypasses `costs.preflight` / `record_call` (zero $-cost;
+    `daily.csv` is the spend log, not a generic call ledger). Latency and
+    token counts still flow on `ModelResponse` and land in CSV + MLflow
+    via the runner.
+
+    No native JSON-schema constraint. Output discipline is prompt-only;
+    parse failures degrade to Tier-1 misses with the error surfaced in
+    `judge_reasoning` by the runner.
+    """
+
+    provider: Provider = "local_hf"
+
+    @validated
+    def __init__(
+        self,
+        model: str = "Qwen/Qwen3-8B",
+        quantization: Literal["nf4", "bf16"] = "nf4",
+        max_new_tokens: int = 400,
+    ) -> None:
+        try:
+            import torch  # type: ignore[import-not-found]
+            from transformers import (  # type: ignore[import-not-found]
+                AutoModelForCausalLM,
+                AutoTokenizer,
+                BitsAndBytesConfig,
+            )
+        except ImportError as exc:  # pragma: no cover — dep in envs/baseline
+            raise RuntimeError(
+                "transformers / torch not installed (use envs/baseline service)"
+            ) from exc
+
+        self.model = model
+        self._max_new_tokens = max_new_tokens
+        self._tokenizer = AutoTokenizer.from_pretrained(model)
+        if quantization == "nf4":
+            try:
+                import bitsandbytes  # noqa: F401  # type: ignore[import-not-found]
+            except ImportError as exc:  # pragma: no cover — dep in envs/baseline
+                raise RuntimeError(
+                    "bitsandbytes not installed (use envs/baseline service)"
+                ) from exc
+            bnb_cfg = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_use_double_quant=True,
+            )
+            self._model = AutoModelForCausalLM.from_pretrained(
+                model,
+                quantization_config=bnb_cfg,
+                device_map="auto",
+            )
+        else:
+            self._model = AutoModelForCausalLM.from_pretrained(
+                model,
+                torch_dtype=torch.bfloat16,
+                device_map="auto",
+            )
+
+    @validated
+    def generate(self, messages: PromptMessages, *, run_id: str, batch_id: str) -> ModelResponse:
+        import torch  # type: ignore[import-not-found]
+
+        rendered = self._tokenizer.apply_chat_template(
+            [
+                {"role": "system", "content": messages.system},
+                {"role": "user", "content": messages.user},
+            ],
+            tokenize=False,
+            add_generation_prompt=True,
+            # Qwen 3 introduced thinking mode (prepends <think>…</think> before
+            # the JSON answer) — disable it so the response starts at the JSON
+            # opening brace. Unknown kwargs are ignored by templates that
+            # don't reference them (no-op for older bases).
+            enable_thinking=False,
+        )
+        encoded = self._tokenizer(rendered, return_tensors="pt").to(self._model.device)
+        prompt_len = int(encoded["input_ids"].shape[1])
+
+        t0 = time.perf_counter()
+        with torch.no_grad():
+            out_ids = self._model.generate(
+                **encoded,
+                max_new_tokens=self._max_new_tokens,
+                do_sample=False,
+                temperature=None,
+                top_p=None,
+                pad_token_id=self._tokenizer.eos_token_id,
+            )
+        latency_ms = (time.perf_counter() - t0) * 1000.0
+
+        new_token_ids = out_ids[0, prompt_len:]
+        completion_len = int(new_token_ids.shape[0])
+        raw_text = self._tokenizer.decode(new_token_ids, skip_special_tokens=True).strip()
+
+        candidate, parse_error = _parse_candidate(raw_text)
+        return ModelResponse(
+            model=self.model,
+            top1=candidate,
+            raw_text=raw_text,
+            input_tokens=prompt_len,
+            output_tokens=completion_len,
             latency_ms=latency_ms,
             parse_error=parse_error,
         )

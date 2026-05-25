@@ -128,30 +128,42 @@ def _safe_name(s: str) -> str:
     return s.replace("/", "_").replace(":", "_")
 
 
-def _run_one_model(
-    model_client: ModelClient,
+def _run_pair_major(
+    generators: Sequence[ModelClient],
     judge: JudgeClient,
     gold: GoldSet,
-    run_name_prefix: str,
-    prompt_variant: str,
-) -> tuple[str, list[EvalRow], EvalAggregates]:
-    """Run one generator end-to-end + aggregate. Caller wraps in MLflow."""
-    rows: list[EvalRow] = []
+    run_name: str,
+) -> dict[str, list[EvalRow]]:
+    """Pair-major execution: for each pair, call every generator (judging
+    each response immediately), then move to the next pair.
+
+    Versus the older generator-major order (all pairs through model A, then
+    all through model B, …), pair-major:
+      - **spreads each provider's calls across the run** so per-provider
+        RPM ceilings (Gemini 15 RPM, Groq preview limits, etc.) see lower
+        peak density than in the old contiguous batches;
+      - lets the cooldown between consecutive same-provider calls grow
+        naturally (every call cycles through N-1 other models first);
+      - keeps the CSV row order generator-major for backward compatibility
+        — the caller re-orders by iterating `generators` over the returned
+        dict, so the wire contract (per [eval/README.md]) is unchanged.
+    """
+    per_model_rows: dict[str, list[EvalRow]] = {gen.model: [] for gen in generators}
     for pair in gold.pairs:
         prompt = build_eval_prompt(pair)
-        response = model_client.generate(
-            prompt, run_id=run_name_prefix, batch_id=f"{pair.framework_pair}::{pair.id}"
-        )
-        score = judge_pair(
-            pair,
-            response,
-            judge,
-            run_id=run_name_prefix,
-            batch_id=f"{pair.framework_pair}::{pair.id}",
-        )
-        rows.append(build_eval_row(pair, response, score))
-    agg = aggregate_rows(rows)
-    return model_client.model, rows, agg
+        for gen in generators:
+            response = gen.generate(
+                prompt, run_id=run_name, batch_id=f"{pair.framework_pair}::{pair.id}"
+            )
+            score = judge_pair(
+                pair,
+                response,
+                judge,
+                run_id=run_name,
+                batch_id=f"{pair.framework_pair}::{pair.id}",
+            )
+            per_model_rows[gen.model].append(build_eval_row(pair, response, score))
+    return per_model_rows
 
 
 def run_eval(
@@ -214,7 +226,17 @@ def run_eval(
             },
         )
 
+        # Pair-major execution — generates + judges every pair through every
+        # generator in interleaved order. Returns per-model row lists; we
+        # then log per-model MLflow children + aggregates after the loop.
+        per_model_rows = _run_pair_major(generators, judge, gold, run_name)
+
         for gen in generators:
+            rows = per_model_rows[gen.model]
+            agg = aggregate_rows(rows)
+            per_model[gen.model] = agg
+            all_rows.extend(rows)  # generator-major CSV row order preserved
+
             child_name = f"{run_name}/{_safe_name(gen.model)}"
             with mlflow.start_run(run_name=child_name, nested=True):
                 mlflow.set_tag(PROJECT_TAG_KEY, PROJECT_TAG_VALUE)
@@ -233,10 +255,6 @@ def run_eval(
                         **({"slice_tag": slice_tag} if slice_tag is not None else {}),
                     }
                 )
-                model_name, rows, agg = _run_one_model(gen, judge, gold, child_name, prompt_variant)
-                all_rows.extend(rows)
-                per_model[model_name] = agg
-
                 mlflow.log_metric("tier1_citation_match_overall", agg.overall.tier1_citation_match)
                 mlflow.log_metric("tier2_judge_mean", agg.overall.tier2_judge_mean)
                 mlflow.log_metric(

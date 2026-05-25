@@ -1,6 +1,6 @@
-"""Tier-2C tokenizer audit — measures how Qwen2.5-7B-Instruct fragments
-Thai, French, and German regulatory text before the project commits to it as
-the QLoRA base model.
+"""Tier-2C tokenizer audit — measures how the project's chosen QLoRA-base
+tokenizer (default: Qwen/Qwen3-8B) fragments Thai, French, and German
+regulatory text before the project commits to that base.
 
 Pure library. Tokenizer + PDF I/O live in the CLI under [envs/audit/scripts/run_tokenizer_audit.py].
 Functions here take already-extracted text + already-encoded token ids + a
@@ -16,10 +16,10 @@ Gating thresholds (from [docs/development_plan.md]):
 - FR/DE/EN: ``WARN`` if ``tokens_per_char`` > 1.5 (Latin-script regression
   sanity check); else ``PASS``.
 
-"Byte-fallback" for Qwen2.5's byte-level BPE (BBPE) is operationally defined
-as the fraction of emitted tokens whose decoded UTF-8 form is exactly one
-byte — i.e. BPE leaves that never merged into a multi-byte token. This is the
-actionable proxy for §5's ">20% bytefallback on Thai = hard stop".
+"Byte-fallback" for the Qwen series' byte-level BPE (BBPE) is operationally
+defined as the fraction of emitted tokens whose decoded UTF-8 form is exactly
+one byte — i.e. BPE leaves that never merged into a multi-byte token. This is
+the actionable proxy for §5's ">20% bytefallback on Thai = hard stop".
 """
 
 from __future__ import annotations
@@ -227,7 +227,7 @@ def render_markdown(
     run_id_line = run_id or "n/a"
 
     header = [
-        "# Tokenizer Audit — Qwen2.5-7B-Instruct (Thai / FR / DE)",
+        f"# Tokenizer Audit — `{model_id}` (Thai / FR / DE / EN)",
         "",
         f"**Generated**: {ts}  ·  **Model**: `{model_id}`  ·  "
         f"**Git commit**: `{git_commit}`  ·  **MLflow run**: `{run_id_line}`",
@@ -241,7 +241,7 @@ def render_markdown(
         "## Methodology",
         "",
         "- **Byte-fallback (BBPE-flavoured)**: fraction of emitted tokens whose decoded "
-        "UTF-8 form is exactly one byte. Qwen2.5 uses byte-level BPE — there is no "
+        "UTF-8 form is exactly one byte. The Qwen series uses byte-level BPE — there is no "
         "SentencePiece byte-fallback marker — so this operational definition is the "
         "actionable proxy for §5's `>20%` hard stop.",
         "- **Sample**: pypdfium2 plain-text extraction of a page band midway through "

@@ -1,6 +1,6 @@
-# Tokenizer Audit — Qwen2.5-7B-Instruct (Thai / FR / DE)
+# Tokenizer Audit — `Qwen/Qwen3-8B` (Thai / FR / DE / EN)
 
-**Generated**: 2026-05-24 17:05 UTC  ·  **Model**: `Qwen/Qwen2.5-7B-Instruct`  ·  **Git commit**: `1d38f6076efd`  ·  **MLflow run**: `6537272d8e7f4af0a72929ec6573a93d`
+**Generated**: 2026-05-25 15:11 UTC  ·  **Model**: `Qwen/Qwen3-8B`  ·  **Git commit**: `28913b82b78b`  ·  **MLflow run**: `621fc92fb40d41bd8d7fdbe8d3c2ecab`
 
 ## Verdict
 
@@ -11,7 +11,7 @@
 
 ## Methodology
 
-- **Byte-fallback (BBPE-flavoured)**: fraction of emitted tokens whose decoded UTF-8 form is exactly one byte. Qwen2.5 uses byte-level BPE — there is no SentencePiece byte-fallback marker — so this operational definition is the actionable proxy for §5's `>20%` hard stop.
+- **Byte-fallback (BBPE-flavoured)**: fraction of emitted tokens whose decoded UTF-8 form is exactly one byte. The Qwen series uses byte-level BPE — there is no SentencePiece byte-fallback marker — so this operational definition is the actionable proxy for §5's `>20%` hard stop.
 - **Sample**: pypdfium2 plain-text extraction of a page band midway through each source PDF. Extraction fidelity is irrelevant to per-character tokenization metrics (Thai codepoints are 3-byte UTF-8 regardless of layout).
 - **Thresholds**: Thai `tokens/char ≥ 2.0` → `FAIL_M0` · `single_byte_frac ≥ 0.2` → `FAIL_S5` · `tokens/char ≥ 2.5` OR `single_byte_frac ≥ 0.15` → `WARN_R4` · FR/DE/EN `tokens/char > 1.5` → `WARN`.
 

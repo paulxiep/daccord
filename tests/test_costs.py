@@ -249,12 +249,17 @@ class TestConfigLoad:
 
 class TestFreeTier:
     def test_estimate_cost_is_zero_for_free_tier(self, costs_env: Path) -> None:
-        assert estimate_cost("groq", "llama-3.3-70b-versatile", 5_000, 5_000) == 0.0
-        assert estimate_cost("google_gemini", "gemini-2.0-flash", 5_000, 5_000) == 0.0
+        assert (
+            estimate_cost("groq", "meta-llama/llama-4-scout-17b-16e-instruct", 5_000, 5_000)
+            == 0.0
+        )
+        assert estimate_cost("google_gemini", "gemini-3.1-flash-lite", 5_000, 5_000) == 0.0
 
     def test_preflight_under_rpd_cap_passes(self, costs_env: Path) -> None:
         # cap 14400; no calls today; preflight returns 0.0 cost
-        assert preflight("groq", "llama-3.3-70b-versatile", 5_000, 5_000) == 0.0
+        assert (
+            preflight("groq", "meta-llama/llama-4-scout-17b-16e-instruct", 5_000, 5_000) == 0.0
+        )
 
     def test_preflight_over_rpd_cap_raises(self, costs_env: Path) -> None:
         # Seed 1500 calls under google_gemini today; preflight (which would push to 1501) raises
@@ -264,19 +269,19 @@ class TestFreeTier:
                 CallRow(
                     ts_utc=f"{today}T12:00:00.{i:06d}+00:00",
                     provider="google_gemini",
-                    model="gemini-2.0-flash",
+                    model="gemini-3.1-flash-lite",
                     input_tokens=1,
                     output_tokens=1,
                     cost_usd=0.0,
                 )
             )
         with pytest.raises(CapExceeded):
-            preflight("google_gemini", "gemini-2.0-flash", 100, 100)
+            preflight("google_gemini", "gemini-3.1-flash-lite", 100, 100)
 
     def test_record_call_increments_request_count(self, costs_env: Path) -> None:
         assert today_requests("groq") == 0
-        record_call("groq", "llama-3.3-70b-versatile", 1_000, 1_000)
-        record_call("groq", "llama-3.3-70b-versatile", 1_000, 1_000)
+        record_call("groq", "meta-llama/llama-4-scout-17b-16e-instruct", 1_000, 1_000)
+        record_call("groq", "meta-llama/llama-4-scout-17b-16e-instruct", 1_000, 1_000)
         assert today_requests("groq") == 2
         # Free-tier rows carry $0 cost
         assert today_spend("groq") == 0.0
@@ -289,14 +294,14 @@ class TestFreeTier:
                 CallRow(
                     ts_utc=f"{today}T12:00:00.{i:06d}+00:00",
                     provider="google_gemini",
-                    model="gemini-2.0-flash",
+                    model="gemini-3.1-flash-lite",
                     input_tokens=1,
                     output_tokens=1,
                     cost_usd=0.0,
                 )
             )
         with pytest.raises(CapExceeded):
-            record_call("google_gemini", "gemini-2.0-flash", 100, 100)
+            record_call("google_gemini", "gemini-3.1-flash-lite", 100, 100)
         # Call was still logged before the raise
         assert today_requests("google_gemini") == 1501
 
@@ -336,7 +341,7 @@ class TestFreeTier:
                 CallRow(
                     ts_utc=f"{today}T12:00:00.{i:06d}+00:00",
                     provider="google_gemini",
-                    model="gemini-2.0-flash",
+                    model="gemini-3.1-flash-lite",
                     input_tokens=1,
                     output_tokens=1,
                     cost_usd=0.0,
@@ -344,7 +349,7 @@ class TestFreeTier:
             )
         monkeypatch.setenv("DACCORD_COSTS_OVERRIDE", "1")
         # No raise even though we're past RPD cap
-        preflight("google_gemini", "gemini-2.0-flash", 100, 100)
+        preflight("google_gemini", "gemini-3.1-flash-lite", 100, 100)
 
 
 class TestConfigValidation:

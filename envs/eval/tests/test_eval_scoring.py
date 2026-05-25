@@ -128,7 +128,7 @@ class TestCitationMatchTopK:
 class TestParseJudge:
     def test_valid_payload(self) -> None:
         payload = {"score": 0.8, "bucket": "substantively_right", "reasoning": "matches"}
-        s = _parse_judge(json.dumps(payload), "gemini-2.5-flash")
+        s = _parse_judge(json.dumps(payload), "gemini-3.1-flash-lite")
         assert s.score == pytest.approx(0.8)
         assert s.bucket == "substantively_right"
         assert s.parse_error is None

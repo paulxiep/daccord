@@ -1,25 +1,37 @@
-"""CLI wrapper for the eval harness (tier 2B).
+"""CLI wrapper for the eval harness (tier 2B + 3A).
 
-Examples:
+Examples (run via Docker Compose — see CLAUDE.md):
 
-    # Smoke against the toy gold with Groq + Gemini, judged by Gemini Flash
-    uv run python eval/run_eval.py \\
-        --gold-path data/gold/toy_v1.jsonl \\
+    # Smoke against the toy gold with Llama 4 (Groq) + Gemini 3.1 Flash Lite,
+    # judged by Llama 4 Scout via Groq:
+    docker compose run --rm eval uv run python scripts/run_eval.py \\
+        --gold-path ../../data/gold/toy_v1.jsonl \\
         --models groq,gemini \\
-        --judge gemini-2.5-flash \\
-        --output-csv eval/baseline_toy.csv \\
-        --run-name baseline-toy-2026-05-23
+        --judge meta-llama/llama-4-scout-17b-16e-instruct \\
+        --output-csv ../../eval/baseline_toy.csv \\
+        --run-name baseline-toy-2026-05-25
+
+    # Add the local Qwen3-8B 4-bit-NF4 baseline + Qwen3-32B-via-Groq (tier 3A);
+    # runs in the `baseline` GPU service so torch + bitsandbytes are available:
+    docker compose run --rm baseline uv run python ../eval/scripts/run_eval.py \\
+        --gold-path ../../data/gold/toy_v1.jsonl \\
+        --models qwen,groq,qwen3,gemini \\
+        --judge meta-llama/llama-4-scout-17b-16e-instruct \\
+        --output-csv ../../eval/baseline_toy.csv \\
+        --run-name baseline-toy-2026-05-25
 
     # Dry run — validates schema + builds prompts, makes no API calls
-    uv run python eval/run_eval.py --gold-path data/gold/toy_v1.jsonl --dry-run
+    docker compose run --rm eval uv run python scripts/run_eval.py \\
+        --gold-path ../../data/gold/toy_v1.jsonl --dry-run
 
 Defaults are intentionally minimal: model strings are short aliases mapped to
-the concrete `(provider, model)` pairs. Pass `--groq-model <id>` or
-`--gemini-model <id>` to override.
+the concrete `(provider, model)` pairs. Pass `--groq-model <id>`,
+`--gemini-model <id>`, or `--qwen-model <id>` to override.
 
 Requires GROQ_API_KEY and/or GOOGLE_API_KEY in the environment — load via
 `.env.local` (caller exports before invoking). The harness does NOT pull
-in python-dotenv to keep the dep tree lean.
+in python-dotenv to keep the dep tree lean. The `qwen` alias has no API
+key requirement (local inference) but expects a CUDA-capable GPU.
 """
 
 from __future__ import annotations
@@ -29,9 +41,15 @@ import logging
 import sys
 from pathlib import Path
 
-from daccord.eval.clients import GeminiClient, GroqClient, ModelClient, RetrievalClient
+from daccord.eval.clients import (
+    GeminiClient,
+    GroqClient,
+    LocalHFClient,
+    ModelClient,
+    RetrievalClient,
+)
 from daccord.eval.runner import run_eval
-from daccord.eval.scoring import GeminiJudge, JudgeClient
+from daccord.eval.scoring import GeminiJudge, GroqJudge, JudgeClient
 
 log = logging.getLogger("run_eval")
 
@@ -40,8 +58,16 @@ DEFAULT_GOLD = REPO_ROOT / "data" / "gold" / "toy_v1.jsonl"
 DEFAULT_OUTPUT = REPO_ROOT / "eval" / "baseline_toy.csv"
 
 MODEL_ALIASES: dict[str, str] = {
-    "groq": "llama-3.3-70b-versatile",
-    "gemini": "gemini-2.5-flash",
+    # API generators — current-generation free-tier comparators (2026).
+    "groq": "meta-llama/llama-4-scout-17b-16e-instruct",  # Llama 4 Scout via Groq
+    "qwen3": "qwen/qwen3-32b",  # frontier Qwen via Groq (separate from local Qwen base)
+    "gemini": "gemini-3.1-flash-lite",
+    # Local — QLoRA base for the fine-tune (RTX 5080 16 GB, 4-bit NF4). Chosen
+    # after the 2026-05-25 base-revisit: Qwen3-8B replaces Qwen2.5-7B-Instruct
+    # (the latter was picked by the original tokenizer audit but Qwen 3 has a
+    # newer multilingual tokenizer and similar VRAM footprint).
+    "qwen": "Qwen/Qwen3-8B",
+    # Retrieval baseline (tier 12B).
     "retrieval": "retrieval/paraphrase-multilingual-mpnet-base-v2",
 }
 DEFAULT_RETRIEVAL_EMBEDDER = "paraphrase-multilingual-mpnet-base-v2"
@@ -50,7 +76,9 @@ DEFAULT_RETRIEVAL_EMBEDDER = "paraphrase-multilingual-mpnet-base-v2"
 def _resolve_generators(
     aliases: list[str],
     groq_model: str | None,
+    qwen3_model: str | None,
     gemini_model: str | None,
+    qwen_model: str | None,
     retrieval_index_path: Path | None,
     retrieval_embedder: str,
     retrieval_score_threshold: float | None,
@@ -59,8 +87,13 @@ def _resolve_generators(
     for a in aliases:
         if a == "groq":
             out.append(GroqClient(model=groq_model or MODEL_ALIASES["groq"]))
+        elif a == "qwen3":
+            # Qwen 3-32B via Groq — different model_id but same SDK as GroqClient.
+            out.append(GroqClient(model=qwen3_model or MODEL_ALIASES["qwen3"]))
         elif a == "gemini":
             out.append(GeminiClient(model=gemini_model or MODEL_ALIASES["gemini"]))
+        elif a == "qwen":
+            out.append(LocalHFClient(model=qwen_model or MODEL_ALIASES["qwen"]))
         elif a == "retrieval":
             if retrieval_index_path is None:
                 raise SystemExit(
@@ -82,13 +115,33 @@ def _resolve_generators(
 
 
 def _resolve_judge(judge_arg: str) -> JudgeClient:
-    # M0: only Gemini Flash is wired as a judge. Other judges can be added
-    # in this dispatch when needed (M4 may want a non-Gemini judge to
-    # avoid self-judging when Gemini is also a generator).
-    if judge_arg in ("gemini", "gemini-2.5-flash") or judge_arg.startswith("gemini-"):
-        model = judge_arg if judge_arg.startswith("gemini-") else "gemini-2.5-flash"
+    # Default judge is Llama 4 Scout via Groq (strongest current-generation
+    # free-tier Llama; bumped 2026-05-25 from llama-3.3-70b-versatile). Gemini
+    # judge kept as alternative for when M4 swaps Llama into the generator
+    # pool and wants a different judge family.
+    groq_aliases = (
+        "groq",
+        "llama-4-scout",
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "llama-3.3-70b-versatile",
+    )
+    if (
+        judge_arg in groq_aliases
+        or judge_arg.startswith("llama-")
+        or judge_arg.startswith("meta-llama/")
+    ):
+        if judge_arg.startswith("llama-") or judge_arg.startswith("meta-llama/"):
+            model = judge_arg
+        else:
+            model = "meta-llama/llama-4-scout-17b-16e-instruct"
+        return GroqJudge(model=model)
+    if judge_arg in ("gemini", "gemini-3.1-flash-lite") or judge_arg.startswith("gemini-"):
+        model = judge_arg if judge_arg.startswith("gemini-") else "gemini-3.1-flash-lite"
         return GeminiJudge(model=model)
-    raise SystemExit(f"unknown judge {judge_arg!r}; supported: gemini, gemini-2.5-flash")
+    raise SystemExit(
+        f"unknown judge {judge_arg!r}; supported: groq, llama-3.3-70b-versatile, "
+        "gemini, gemini-3.1-flash-lite"
+    )
 
 
 def _dry_run(gold_path: Path, aliases: list[str]) -> int:
@@ -126,10 +179,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--models",
         default="groq,gemini",
-        help="comma-separated model aliases: groq,gemini,retrieval",
+        help="comma-separated model aliases: groq,qwen3,gemini,qwen,retrieval",
     )
     parser.add_argument(
-        "--judge", default="gemini-2.5-flash", help="judge model (default: gemini-2.5-flash)"
+        "--judge",
+        default="meta-llama/llama-4-scout-17b-16e-instruct",
+        help=(
+            "judge model (default: llama-4-scout via Groq). Also supports: "
+            "groq, llama-3.3-70b-versatile, gemini, gemini-3.1-flash-lite."
+        ),
     )
     parser.add_argument(
         "--output-csv",
@@ -151,10 +209,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--groq-model",
         default=None,
-        help="override Groq model id (default: llama-3.3-70b-versatile)",
+        help=(
+            "override Groq alias model id "
+            "(default: meta-llama/llama-4-scout-17b-16e-instruct)"
+        ),
     )
     parser.add_argument(
-        "--gemini-model", default=None, help="override Gemini model id (default: gemini-2.5-flash)"
+        "--qwen3-model",
+        default=None,
+        help="override Qwen3 alias model id (default: qwen/qwen3-32b via Groq)",
+    )
+    parser.add_argument(
+        "--gemini-model",
+        default=None,
+        help="override Gemini model id (default: gemini-3.1-flash-lite)",
+    )
+    parser.add_argument(
+        "--qwen-model",
+        default=None,
+        help="override local Qwen HF id (default: Qwen/Qwen3-8B, 4-bit NF4)",
     )
     parser.add_argument(
         "--retrieval-index-path",
@@ -208,7 +281,9 @@ def main(argv: list[str] | None = None) -> int:
     generators = _resolve_generators(
         aliases,
         args.groq_model,
+        args.qwen3_model,
         args.gemini_model,
+        args.qwen_model,
         args.retrieval_index_path,
         args.retrieval_embedder,
         args.retrieval_score_threshold,

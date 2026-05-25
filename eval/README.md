@@ -6,7 +6,7 @@ Tier 2B deliverable. The harness reused at M0 (toy gold, baselines) and M4 (full
 
 ## CSV row contract
 
-Stable from M0 → M4. Future readers (interview demo notebook, M4 README table) parse this format:
+Stable from M0 → M4. Future readers (M4 README table, downstream analysis notebooks) parse this format:
 
 ```
 gold_id, model, source_jurisdiction, source_framework,
@@ -47,7 +47,7 @@ experiment: daccord-eval
     │     judge_bucket_<bucket>                              (count, per bucket)
     │     n_pairs
     │
-    └── child run: ".../gemini-2.5-flash"  (same metric schema)
+    └── child run: ".../gemini-3.1-flash-lite"  (same metric schema; default judge is meta-llama/llama-4-scout-17b-16e-instruct)
 ```
 
 `prompt_variant` is a REQUIRED runner argument (no silent default). At M0 it's `"unconstrained-m0"`; tier 6A's registry-constrained prompt will land a different variant string.
@@ -58,8 +58,8 @@ Wired at 2B (project pivoted to free-tier OSS for Phase 1):
 
 | Alias | SDK | Default model | Cap mode |
 |---|---|---|---|
-| `groq` | [groq](https://pypi.org/project/groq/) | `llama-3.3-70b-versatile` | RPD (free tier) |
-| `gemini` | [google-genai](https://pypi.org/project/google-genai/) | `gemini-2.5-flash` | RPD (free tier) |
+| `groq` | [groq](https://pypi.org/project/groq/) | `meta-llama/llama-4-scout-17b-16e-instruct` | RPD (free tier) |
+| `gemini` | [google-genai](https://pypi.org/project/google-genai/) | `gemini-3.1-flash-lite` | RPD (free tier) |
 | `retrieval` | [sentence-transformers](https://pypi.org/project/sentence-transformers/) + [faiss-cpu](https://pypi.org/project/faiss-cpu/) | `paraphrase-multilingual-mpnet-base-v2` (embedder) | n/a — local-only, no API spend |
 
 API keys come from `.env.local` (`GROQ_API_KEY`, `GOOGLE_API_KEY`). Every call routes through [daccord.costs](../src/daccord/costs/__init__.py) (`preflight` + `record_call`) — free-tier providers raise `CapExceeded` on RPD-cap breach; paid-spill providers raise on USD-cap breach. The `retrieval` client is local-only and bypasses the cost layer.
@@ -76,11 +76,11 @@ Fourth comparator added at tier 12B. Answers the architectural question *"could 
 
 **Index build**: `cd envs/eval && uv run python scripts/build_retrieval_index.py --gold-path ../../data/splits/train.jsonl --output ../../data/indices/retrieval__train__<dataset_hash>.faiss`. Run once per train-split version (re-run when the split refreshes).
 
-The local-HF baseline for base Qwen2.5-7B-Instruct (tier 3A baseline run) is intentionally NOT shipped at 2B — `torch` + `bitsandbytes` are not in current deps, and Groq does not host Qwen2.5-7B. Tier 3A owns adding the `LocalHFClient`; the [`ModelClient`](../src/daccord/eval/clients.py) Protocol is the extension point.
+The local-HF baseline for base Qwen3-8B (tier 3A baseline run) is shipped via `LocalHFClient` in [src/daccord/eval/clients.py](../src/daccord/eval/clients.py). `torch` + `bitsandbytes` live in `envs/baseline/` (not the eval env), and Groq does not host the local-Qwen base — so the qwen alias routes through the `baseline` compose service for the GPU passthrough.
 
 ## Judge defaults + self-judging caveat
 
-Default judge: `gemini-2.5-flash`. When the generator is *also* Gemini, the judge is technically self-judging — a noise term at M0 (20 pairs) but a credibility risk at M4 (500 pairs). The `--judge` CLI flag is a one-line swap; M4 should default to a non-Gemini judge when a Gemini generator is in the mix.
+Default judge: `meta-llama/llama-4-scout-17b-16e-instruct` via Groq (bumped 2026-05-25 from `llama-3.3-70b-versatile` per the README "stronger judge" decision). `--judge gemini-3.1-flash-lite` is wired as an alternative for when a non-Llama judge is preferred (e.g., M4 with a Llama generator in the pool). When the generator and the judge are the same model id (e.g., `groq` generator + Llama 4 Scout judge), the judge is technically self-judging — a noise term at M0 (20 pairs) but a credibility risk at M4 (500 pairs); swap to DeepSeek V3 or another family then.
 
 ## CLI
 
@@ -100,7 +100,7 @@ cd envs/eval && uv run python scripts/run_eval.py \
 cd envs/eval && uv run python scripts/run_eval.py \
   --gold-path ../../data/gold/toy_v1.jsonl \
   --models groq,gemini \
-  --judge gemini-2.5-flash \
+  --judge gemini-3.1-flash-lite \
   --output-csv ../../eval/baseline_toy.csv \
   --run-name baseline-toy-2026-05-25
 
@@ -111,7 +111,7 @@ cd envs/eval && uv run python scripts/run_eval.py \
   --retrieval-index-path ../../data/indices/retrieval__train__<dataset_hash>.faiss \
   --retrieval-embedder paraphrase-multilingual-mpnet-base-v2 \
   --slice-tag out-of-domain \
-  --judge gemini-2.5-flash \
+  --judge gemini-3.1-flash-lite \
   --output-csv ../../eval/results_v1__out_of_domain.csv \
   --run-name results-v1-out-of-domain-2026-05-25
 

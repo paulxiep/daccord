@@ -1,10 +1,9 @@
 """Tier 2A — draft 20-pair toy gold via Groq (Llama) and Google AI Studio (Gemini).
 
-Run from envs/eval/ where groq + google-genai are installed (those SDKs do not
-live in the shared .venv/; see CLAUDE.md "Per-tier sub-projects under envs/"):
+Runs in the `eval` service where groq + google-genai are installed (those SDKs
+do not live in the shared root venv; see CLAUDE.md services table):
 
-    cd envs/eval
-    conda run -n d-accord --no-capture-output uv run python scripts/draft_toy_gold.py
+    docker compose run --rm eval uv run python scripts/draft_toy_gold.py
 
 Produces .draft_{llama,gemini}.jsonl files in <repo>/data/gold/ for human
 reconcile + verify. The committed file <repo>/data/gold/toy_v1.jsonl is built
@@ -36,8 +35,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUT_DIR = REPO_ROOT / "data" / "gold"
 DEFAULT_ENV_FILE = REPO_ROOT / ".env.local"
 
-DEFAULT_LLAMA_MODEL = "llama-3.3-70b-versatile"
-DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
+DEFAULT_LLAMA_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
 
 FRAMEWORKS: tuple[str, ...] = (
     "gdpr",

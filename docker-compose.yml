@@ -3,10 +3,11 @@
 #
 # Naming: services map 1:1 to top-level pipeline stages.
 #   - root      → shared daccord lib (src/daccord/, tests/, ruff/pyright/pytest)
-#   - eval      → envs/eval/   (tier 2B harness + retrieval baseline at 12B)
-#   - audit     → envs/audit/  (tier 2C tokenizer audit)
+#   - eval      → envs/eval/    (tier 2B harness + retrieval baseline at 12B)
+#   - audit     → envs/audit/   (tier 2C tokenizer audit)
 #   - bakeoff   → envs/bakeoff/ (tier 2D Marker vs Typhoon-OCR; GPU service)
-#   - consumer  → consumer/    (Streamlit side-by-side; lands at tier 12C)
+#   - baseline  → envs/baseline/(tier 3A Qwen2.5-7B 4-bit-NF4 baseline; GPU service)
+#   - consumer  → consumer/     (Streamlit side-by-side; lands at tier 12C)
 #
 # Volume strategy:
 #   - Project source: bind-mounted from Windows host at /workspace.
@@ -117,6 +118,38 @@ services:
     tty: true
     stdin_open: true
 
+  baseline:
+    # Tier 3A — local Qwen2.5-7B 4-bit-NF4 baseline. Same CUDA image as
+    # bakeoff; Python 3.14 (the CUDA image's default) — bakeoff's 3.13 pin
+    # is marker-pdf-specific and doesn't apply here. Run from CLI:
+    #   docker compose run --rm baseline uv sync
+    #   docker compose run --rm baseline uv run python ../eval/scripts/run_eval.py \
+    #     --models qwen,groq,gemini --gold-path ../../data/gold/toy_v1.jsonl ...
+    build:
+      context: .
+      dockerfile: Dockerfile.cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - .:/workspace
+      - daccord-uv-cache:/root/.cache/uv
+      - daccord-hf-cache:/root/.cache/huggingface
+      - daccord-venv-baseline:/workspace/envs/baseline/.venv
+    working_dir: /workspace/envs/baseline
+    # Live runs against Groq + Gemini (via the eval runner's API generators)
+    # need API keys from .env (host-side, gitignored); the local Qwen path
+    # needs no keys.
+    env_file:
+      - path: .env
+        required: false
+    tty: true
+    stdin_open: true
+
 volumes:
   daccord-uv-cache:
   daccord-hf-cache:
@@ -124,4 +157,5 @@ volumes:
   daccord-venv-eval:
   daccord-venv-audit:
   daccord-venv-bakeoff:
+  daccord-venv-baseline:
   daccord-venv-consumer:

@@ -17,8 +17,8 @@ metric reads against this matrix.
   appears as source or target in ≥2 pairs so per-jurisdiction MLflow metrics aren't
   single-point.
 - **Native-language validation moat** — PDPA-TH ≥3 pairs (author validates Thai
-  natively); FR Loi I+L ≥3 pairs (author validates French). These two are the
-  credential's headline claim; under-sampling them hollows out M4.
+  natively); FR Loi I+L ≥3 pairs (author validates French). These two underpin
+  the project's headline value claim; under-sampling them hollows out M4.
 - **Concept axes** — `consent`, `dsar` (data subject access rights), `breach`
   (notification), `security`, `dpo` (DPO appointment / controller duties). Each
   appears ≥3 times.

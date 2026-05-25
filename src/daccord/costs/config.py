@@ -19,10 +19,11 @@ Provider = Literal[
     "deepseek",
     # Local-only providers — never go through preflight/record_call, so they
     # need no cap entry in costs/config.toml. Added so ModelClient adapters
-    # for local-inference baselines (retrieval index, future LocalHFClient
-    # for base-Qwen) can satisfy the Protocol's `provider: Provider` field
-    # without polluting the cost-tracking codepath.
+    # for local-inference baselines (retrieval index, LocalHFClient for
+    # base-Qwen at tier 3A) can satisfy the Protocol's `provider: Provider`
+    # field without polluting the cost-tracking codepath.
     "retrieval",
+    "local_hf",
 ]
 PROVIDERS: tuple[Provider, ...] = (
     "anthropic",
@@ -33,6 +34,7 @@ PROVIDERS: tuple[Provider, ...] = (
     "cerebras",
     "deepseek",
     "retrieval",
+    "local_hf",
 )
 ProviderKind = Literal["paid", "free_tier"]
 

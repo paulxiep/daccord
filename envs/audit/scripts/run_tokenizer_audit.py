@@ -1,13 +1,16 @@
-"""Tier-2C tokenizer audit CLI — empirically measures how Qwen2.5-7B-Instruct's
-tokenizer fragments Thai / French / German regulatory text before the project
-commits to it as the QLoRA base.
+"""Tier-2C tokenizer audit CLI — empirically measures how the project's chosen
+QLoRA base tokenizer fragments Thai / French / German regulatory text.
+
+Default base (2026-05-25): Qwen3-8B (Qwen/Qwen3-8B). Replaces the original
+Qwen2.5-7B-Instruct choice — Qwen 3 has a newer multilingual tokenizer and
+similar VRAM footprint at NF4. Pass --model-id to override.
 
 Reads the corpus manifest (data/raw_manifest.json), extracts plain text from
 the per-language PDFs via pypdfium2, loads the tokenizer via HuggingFace
-(Qwen/Qwen2.5-7B-Instruct is public/ungated — no HF_TOKEN needed; first run
-downloads ~10 MB to %USERPROFILE%\\.cache\\huggingface\\), computes metrics
-via daccord.tokenizer_audit, writes eval/tokenizer_audit.{md,csv}, and logs
-the run to MLflow per docs/MLFLOW.md.
+(public/ungated — no HF_TOKEN needed; first run downloads tokenizer assets
+to the daccord-hf-cache volume), computes metrics via
+daccord.tokenizer_audit, writes eval/tokenizer_audit.{md,csv}, and logs
+the run to MLflow.
 
 Exit codes:
     0   all languages PASS
@@ -52,7 +55,7 @@ DEFAULT_MANIFEST = REPO_ROOT / "data" / "raw_manifest.json"
 DEFAULT_OUT_MD = REPO_ROOT / "eval" / "tokenizer_audit.md"
 DEFAULT_OUT_CSV = REPO_ROOT / "eval" / "tokenizer_audit.csv"
 DEFAULT_RAW_TEXT_DIR = REPO_ROOT / "eval" / "raw" / "tokenizer_audit"
-DEFAULT_MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
+DEFAULT_MODEL_ID = "Qwen/Qwen3-8B"
 DEFAULT_LANGUAGES = ("th", "fr", "de", "en")
 DEFAULT_PAGES = 8
 MIN_USEFUL_CHARS = 500
@@ -128,7 +131,11 @@ def audit_one_language(
     decode_fn,
 ) -> tuple[LanguageSample, AuditMetrics, str]:
     """Extract text, tokenize, compute metrics, and produce a verdict."""
-    pdf_path = Path(entry.local_path)
+    # Reconstruct the PDF path from manifest fields so it works across host
+    # platforms (the manifest's `local_path` field stores the host's absolute
+    # path at corpus-download time, which breaks when the audit runs inside
+    # the Docker container where /workspace differs from the Windows host root).
+    pdf_path = REPO_ROOT / "data" / "raw" / entry.jurisdiction / entry.framework / entry.filename
     raw_out = (raw_text_dir / f"{lang}.txt") if raw_text_dir is not None else None
     text, page_range = extract_pdf_text(pdf_path, pages_to_take, raw_out)
     token_ids: list[int] = encode_fn(text)

@@ -62,7 +62,7 @@ class LocalAdapterClient:
     def __init__(
         self,
         adapter_path: Path,
-        base_model: str = "Qwen/Qwen2.5-7B-Instruct",
+        base_model: str = "Qwen/Qwen3-8B",
         max_new_tokens: int = 400,
         load_in_4bit: bool = True,
     ) -> None:
@@ -122,8 +122,8 @@ class LocalAdapterClient:
             raise RuntimeError("torch not installed") from exc
 
         # Use the model's chat template so the QLoRA-fine-tuned model
-        # sees the same prompt format it was trained on. Qwen2.5-Instruct
-        # has a standard chat template that transformers handles.
+        # sees the same prompt format it was trained on. Qwen3 chat template
+        # is handled natively by transformers.
         chat = [
             {"role": "system", "content": messages.system},
             {"role": "user", "content": messages.user},

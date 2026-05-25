@@ -34,6 +34,7 @@ from typing import Literal, Protocol
 
 from daccord.costs import preflight, record_call
 from daccord.costs.config import Provider
+from daccord.eval._rpm import api_throttle, gemini_retry_on_transient
 from daccord.eval.prompts import build_judge_prompt
 from daccord.eval.schema import ModelResponse, PromptMessages
 from daccord.gold import GoldPair
@@ -175,19 +176,97 @@ def _parse_judge(raw_text: str, judge_model: str) -> JudgeScore:
     )
 
 
-class GeminiJudge:
-    """Free-tier LLM-as-judge using Gemini 2.5 Flash.
+class GroqJudge:
+    """Free-tier LLM-as-judge using Llama 4 Scout via Groq.
 
-    Default model is intentionally the same as `GeminiClient.model` — at
-    M0 self-judging is a noise term on 20 pairs. M4 (500 pairs) should
-    swap to a non-Gemini judge when the generator is Gemini; the
-    `--judge` CLI arg makes this a one-line change.
+    Default model: `meta-llama/llama-4-scout-17b-16e-instruct` — strongest
+    current-generation free-tier Llama via Groq (17B active × 16E MoE).
+    Bumped 2026-05-25 from `llama-3.3-70b-versatile`. Trade-off: when `groq`
+    is in the generator pool with the same model id, the judge is technically
+    self-judging — a known M0 noise term on 20 pairs; document in the M4 run
+    notes and swap to a non-Llama judge (e.g., DeepSeek V3) for the full eval.
+
+    Groq has no native JSON-schema constraint — output discipline comes from
+    the prompt's inline schema description + `response_format=json_object`.
+    `_parse_judge` already tolerates malformed output (clips score, maps
+    unknown bucket → "wrong"), so one bad response doesn't crash the run.
+    """
+
+    provider: Provider = "groq"
+
+    @validated
+    def __init__(self, model: str = "meta-llama/llama-4-scout-17b-16e-instruct") -> None:
+        try:
+            from groq import Groq  # type: ignore[import-not-found]
+        except ImportError as exc:  # pragma: no cover — dep is pinned
+            raise RuntimeError("groq SDK not installed (uv sync)") from exc
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            raise RuntimeError("GROQ_API_KEY not set — see .env.example")
+        self.model = model
+        self._client = Groq(api_key=api_key)
+
+    @validated
+    def judge(self, messages: PromptMessages, *, run_id: str, batch_id: str) -> JudgeScore:
+        from groq import APIError  # type: ignore[import-not-found]
+
+        est_in = (len(messages.system) + len(messages.user)) // 4
+        # Judges emit short JSON (score + bucket + 1-sentence reasoning), but
+        # if a future judge is a "thinking" model (Qwen 3, etc.) the same
+        # max-tokens-cutoff bug would silently zero its scores. Universal
+        # generous ceiling — non-thinking judges still stop early.
+        est_out = 2000
+        preflight(self.provider, self.model, est_in, est_out)
+        api_throttle()
+
+        t0 = time.perf_counter()
+        try:
+            resp = self._client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": messages.system},
+                    {"role": "user", "content": messages.user},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.0,
+                max_tokens=est_out,
+            )
+        except APIError as exc:
+            # One bad judge call shouldn't kill the run — record as a zero-score
+            # row with the error surfaced in `reasoning`.
+            return JudgeScore(
+                score=0.0,
+                bucket="wrong",
+                reasoning=f"judge API error: {type(exc).__name__}: {exc}",
+                judge_model=self.model,
+                parse_error=f"groq api error: {type(exc).__name__}: {exc}",
+            )
+        _ = (time.perf_counter() - t0) * 1000.0  # latency intentionally not recorded for judge
+
+        raw_text = resp.choices[0].message.content or ""
+        usage = resp.usage
+        actual_in = int(usage.prompt_tokens) if usage else est_in
+        actual_out = int(usage.completion_tokens) if usage else (len(raw_text) // 4)
+        record_call(
+            self.provider, self.model, actual_in, actual_out, run_id=run_id, batch_id=batch_id
+        )
+        return _parse_judge(raw_text, self.model)
+
+
+class GeminiJudge:
+    """LLM-as-judge using Gemini 3.1 Flash Lite — alternative to GroqJudge.
+
+    Kept for the rare case where a non-Llama-based judge is desirable (e.g.,
+    when M4 swaps Llama into the generator pool and needs a different judge
+    family to avoid self-judging bias). Free-tier cap: 15 RPM / 500 RPD
+    (older `gemini-2.5-flash` was dropped — daily cap was as low as 20 RPD
+    on some accounts).
     """
 
     provider: Provider = "google_gemini"
 
     @validated
-    def __init__(self, model: str = "gemini-2.5-flash") -> None:
+    def __init__(self, model: str = "gemini-3.1-flash-lite") -> None:
         try:
             from google import genai  # type: ignore[import-not-found]
         except ImportError as exc:  # pragma: no cover
@@ -205,6 +284,7 @@ class GeminiJudge:
         est_in = (len(messages.system) + len(messages.user)) // 4
         est_out = 200
         preflight(self.provider, self.model, est_in, est_out)
+        api_throttle()
 
         config = types.GenerateContentConfig(
             system_instruction=messages.system,
@@ -214,10 +294,12 @@ class GeminiJudge:
             response_json_schema=_JUDGE_JSON_SCHEMA,
         )
         t0 = time.perf_counter()
-        resp = self._client.models.generate_content(
-            model=self.model,
-            contents=messages.user,
-            config=config,
+        resp = gemini_retry_on_transient(
+            lambda: self._client.models.generate_content(
+                model=self.model,
+                contents=messages.user,
+                config=config,
+            )
         )
         _ = (time.perf_counter() - t0) * 1000.0  # latency intentionally not recorded for judge
 

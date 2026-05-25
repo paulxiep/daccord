@@ -8,11 +8,11 @@ Three columns:
   - **Retrieval baseline**: top-1 cosine over the gold-pair index. Provenance
     is always `gold-retrieval` when this column populates; otherwise
     `no-confident-match` (threshold below cutoff).
-  - **d'accord (fine-tune)**: QLoRA-fine-tuned Qwen2.5-7B. Provenance is
+  - **d'accord (fine-tune)**: QLoRA-fine-tuned Qwen3-8B. Provenance is
     `fine-tune-generalization` when produced via the local adapter, or
     surfaced from the remote SageMaker endpoint's response.
   - **Base Qwen / Gold**: when input matches a gold-set pair (test/val
-    membership), shows the gold answer; otherwise shows base Qwen2.5-7B
+    membership), shows the gold answer; otherwise shows base Qwen3-8B
     (when local-mode + base model loaded). Empty when neither applies.
 
 Two backing modes:
@@ -31,7 +31,7 @@ Configuration via env vars (read at app startup):
   - DACCORD_GOLD_PATH         — path to gold JSONL (for eval-set membership check)
   - DACCORD_INDEX_STEM        — path stem to FAISS index (.faiss + .jsonl)
   - DACCORD_ADAPTER_PATH      — path to QLoRA adapter dir
-  - DACCORD_BASE_MODEL        — base Qwen model name (default: Qwen/Qwen2.5-7B-Instruct)
+  - DACCORD_BASE_MODEL        — base Qwen HF id (default: Qwen/Qwen3-8B)
   - DACCORD_SAGEMAKER_ENDPOINT — endpoint name (remote mode only)
   - DACCORD_RETRIEVAL_THRESHOLD — cosine threshold (default: 0.75)
 """
@@ -52,7 +52,7 @@ from daccord.eval.schema import ModelResponse
 from daccord.gold import GoldPair, GoldSet
 from daccord.serving import HybridRouter, LocalAdapterClient
 
-DEFAULT_BASE_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+DEFAULT_BASE_MODEL = "Qwen/Qwen3-8B"
 DEFAULT_THRESHOLD = 0.75
 
 

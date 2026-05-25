@@ -170,7 +170,9 @@ class TestGroqClient:
         assert today_requests("groq") == 1
 
         # SDK call shape (regression guard)
-        assert completions.captured_kwargs["model"] == "llama-3.3-70b-versatile"
+        assert (
+            completions.captured_kwargs["model"] == "meta-llama/llama-4-scout-17b-16e-instruct"
+        )
         assert completions.captured_kwargs["response_format"] == {"type": "json_object"}
         assert completions.captured_kwargs["temperature"] == 0.0
         assert completions.captured_kwargs["messages"] == [
@@ -263,7 +265,7 @@ class TestGeminiClient:
         assert today_requests("google_gemini") == 1
 
         # SDK call shape — json schema constraint must be wired
-        assert models.captured_kwargs["model"] == "gemini-2.5-flash"
+        assert models.captured_kwargs["model"] == "gemini-3.1-flash-lite"
         cfg = models.captured_kwargs["config"]
         assert cfg.system_instruction == "sys"
         assert cfg.temperature == 0.0

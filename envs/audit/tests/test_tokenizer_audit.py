@@ -1,7 +1,7 @@
 """Unit tests for daccord.tokenizer_audit — the 2C tokenizer audit library.
 
 Pure-math tests over synthetic tokens. No HF download, no PDF I/O, no MLflow.
-End-to-end verification of the real Qwen2.5 tokenizer is left to running
+End-to-end verification of the real Qwen3 tokenizer is left to running
 ``envs/audit/scripts/run_tokenizer_audit.py`` and inspecting ``eval/tokenizer_audit.md``.
 """
 
@@ -272,12 +272,12 @@ def test_render_markdown_contains_all_languages() -> None:
     ]
     md = render_markdown(
         rows,
-        model_id="Qwen/Qwen2.5-7B-Instruct",
+        model_id="Qwen/Qwen3-8B",
         git_commit="abc123def456",
         run_id="run-001",
         generated_at=datetime(2026, 5, 23, 10, 0, tzinfo=UTC),
     )
-    assert "Qwen/Qwen2.5-7B-Instruct" in md
+    assert "Qwen/Qwen3-8B" in md
     assert "abc123def456" in md
     assert "run-001" in md
     assert "## Verdict" in md
@@ -308,7 +308,7 @@ def test_render_markdown_omits_thai_section_when_no_thai_row() -> None:
             VERDICT_PASS,
         ),
     ]
-    md = render_markdown(rows, model_id="Qwen/Qwen2.5-7B-Instruct", git_commit="x", run_id=None)
+    md = render_markdown(rows, model_id="Qwen/Qwen3-8B", git_commit="x", run_id=None)
     assert "Top-fragmented characters" not in md
 
 
