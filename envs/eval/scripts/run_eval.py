@@ -209,10 +209,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--groq-model",
         default=None,
-        help=(
-            "override Groq alias model id "
-            "(default: meta-llama/llama-4-scout-17b-16e-instruct)"
-        ),
+        help=("override Groq alias model id (default: meta-llama/llama-4-scout-17b-16e-instruct)"),
     )
     parser.add_argument(
         "--qwen3-model",

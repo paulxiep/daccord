@@ -523,8 +523,8 @@ Three concrete deferrals. All three must close before tier 4 (corpus parse to ma
 - ✓ `daccord-datalab-cache` named volume + `hf_transfer` dep + `HF_HUB_ENABLE_HF_TRANSFER=1` env. Surya (Marker's layout/OCR backend) writes ~3 GB of weights to `/root/.cache/datalab/` on first run; without a named volume those re-download per container exit. Observed download rate over single-stream Docker Desktop networking: **~200 KB/s** (4-hour first run). With `hf_transfer` (Rust-backed parallel chunks): **~13 MB/s** (~65× speedup). The volume is shared with `bakeoff` so tier-2D + tier-4 amortise the download. Pre-existing tracking.py syntax bug (`except A, B, C:` — Py2 syntax, blocks Py3.13 import) fixed in the same commit to unblock the ingest env import path.
 - ✓ Tests (all mocked, CI-runnable without a GPU):
   - [tests/test_ingest_manifest.py](../tests/test_ingest_manifest.py) — 5 tests covering read/write roundtrip, sort determinism, upsert-by-key, failed-row null-field serialisation.
-  - [envs/ingest/tests/test_marker_runner.py](../envs/ingest/tests/test_marker_runner.py) — 4 tests via `sys.modules` injection of fake `marker.*` + `pymupdf`. Covers `parser_version`, `make_converter`, `parse_document` (writes md + reports stats), converter-reuse-across-docs invariant.
-  - [envs/ingest/tests/test_parse_corpus.py](../envs/ingest/tests/test_parse_corpus.py) — 9 tests covering `select_entries` (toy/full/framework allowlist), `output_paths`, `should_skip` (cached-hit + skip-disabled + md-missing + sha-changed + prior-failed branches), `parse_one` failure isolation + happy path with monkeypatched `parse_document`.
+  - [envs/ingest/tests/test_marker_runner.py](../envs/ingest/tests/test_marker_runner.py) — 5 tests via `sys.modules` injection of fake `marker.*` + `pymupdf`. Covers `parser_version`, `make_converter`, `parse_document` (writes md + reports stats), converter-reuse-across-docs invariant.
+  - [envs/ingest/tests/test_parse_corpus.py](../envs/ingest/tests/test_parse_corpus.py) — 11 tests covering `select_entries` (toy/full/framework allowlist), `output_paths`, `should_skip` (cached-hit + skip-disabled + md-missing + sha-changed + prior-failed branches), `parse_one` failure isolation + happy path with monkeypatched `parse_document`.
 
 **Docs:**
 
@@ -577,15 +577,74 @@ docker compose run --rm root uv run ruff format --check .  # clean (pre-existing
 docker compose run --rm root uv run pyright             # 0 errors, 0 warnings
 docker compose run --rm root uv run pytest              # 85 passed (incl. 5 new ingest manifest tests)
 docker compose run --rm ingest uv lock --check          # in-sync
-docker compose run --rm ingest uv run pytest            # 15 passed (5 marker_runner + 10 parse_corpus)
+docker compose run --rm ingest uv run pytest            # 16 passed (5 marker_runner + 11 parse_corpus)
 docker compose run --rm ingest uv run python scripts/parse_corpus.py --subset toy --verbose
 docker compose run --rm ingest uv run python scripts/parse_corpus.py --subset full --verbose
 docker compose run --rm ingest uv run python scripts/r8_spotcheck.py
 ```
 
-### 9.7 — Tier 5 (citation-registry extraction) — to be added when 5 lands
+### 9.7 — Tier 5 (citation-registry extraction) — **DONE 2026-05-26**
 
-Placeholder. Tier 5 sequencing + relative-workload estimate is in the §9.6 plan file. Brief: per-framework JSON registries in `data/registry/<framework_id>.json`, ~5 frameworks × regex authoring + per-framework sample verification; ~40–50% of tier 4's effort; no new env (runs in root); ~30 s wall-time. Will close M1 ("corpus + registries frozen") once 9.6 + 9.7 both land.
+**Status: ✓ Closed.** 9/9 framework registries extracted from the tier-4 parsed markdown; 100% toy-gold base-section recall on every framework present in [data/gold/toy_v1.jsonl](../data/gold/toy_v1.jsonl); R8 follow-up (PDPA-MY Malay regex) resolved. **M1 ("corpus + registries frozen") closed.** Plan file: `~/.claude/plans/plan-tier-5-implementation-stateful-lagoon.md`.
+
+**Decisions resolved up-front (deltas from the original placeholder):**
+
+- **Granularity**: section/article-level with letter-suffixes (e.g. `Article 6` for GDPR; `Section 26A`, `15A`, `22A`, `26D` for PDPA-SG amendments). Subsection precision (`Article 6(1)(a)`) is **not** enumerated — downstream Tier 6A validates predicted citations via prefix-match against the base section. Rationale: Marker emits article numbers as headings, but subsections live in bullet-list structure that varies per framework; enumerating them would 5–10× the work without proportionate downstream value. Tier 1 eval-scoring already operates on the same base-section key space via M0-locked `normalize_citation_id`.
+- **Canonical form**: every extracted ID round-trips through [`daccord.eval.scoring.normalize_citation_id`](../src/daccord/eval/scoring.py) (prefix-stripped, lowercased, subsection parens canonicalized) then letter-suffix re-uppercased. `citation_ids` carries the bare canonical form (`"1"`, `"26D"`, `"38"`); the parallel `display_ids` list carries the normalised English heading form (`"Article 1"`, `"Section 26D"`, `"Section 38"`). Registry hits and eval Tier-1 hits **share key space** — non-negotiable, otherwise the registry can't gate ensemble output at Tier 6A.
+- **Bilingual frameworks**: one file per `framework_id`, languages merged. `bdsg.json` unions DE `§ N` + EN `Section N` into canonical numeric IDs. `pdpa_my.json` unions Malay `Seksyen N` + EN `Section N`. `pdpa_th.json` unions Thai `มาตรา N` (Thai or Arabic digits) + EN `Section N`. Display form is normalised to English "Section N" for downstream uniformity; the per-language original (`§`, `Seksyen`, `มาตรา`) is not preserved (registry is a constraint set, not a UI artifact).
+- **Framework count**: 9 (not the "~5" placeholder estimate). UK has two distinct legal frameworks (UK-GDPR + DPA 2018); README's "8 framework families" counts jurisdictions. 9 matches `data/sources.yaml`'s `framework` keys.
+- **M1 anchor**: existing `data/gold/toy_v1.jsonl` (already hand-verified) is the empirical recall test — no separate mini-gold artifact authored. M2's 500-pair gold will further stress-test the registry; missing IDs there get patched incrementally rather than perfectionism here.
+- **No timestamps in payload**: `FrameworkRegistry` and `RegistryManifestEntry` deliberately omit `extracted_at` — reruns are byte-identical (verified). `extractor_version` + `source_sha256` carry audit info; git mtime carries the rest. Without this, every CI build would dirty 11 files.
+
+**What landed (code):**
+
+- ✓ `src/daccord/registry/` package — runs in `root` service (no new env):
+  - [src/daccord/registry/schema.py](../src/daccord/registry/schema.py) — `FrameworkRegistry` + `RegistryManifestEntry` (`ValidatedModel`); atomic JSON/JSONL I/O (`write_registry`, `read_registry`, `read_manifest`, `write_manifest`, `upsert`).
+  - [src/daccord/registry/patterns.py](../src/daccord/registry/patterns.py) — per-framework regex authoring + dispatch table. Reuses [`daccord.bakeoff.scoring.normalize_thai_numerals`](../src/daccord/bakeoff/scoring.py) for `มาตรา` digit normalization. Handles: `\bArticles?\s+(\d+)` (singular + plural; range expansion for "Articles 15 to 22"), `\bSection\s+(\d+[A-Za-z]?)`, `^-\s+\*{0,2}(\d+[A-Za-z]*)\.\s+\S` (PDPA-SG bullet headings), `\*\*(\d+[A-Za-z]*)\.\*\*` (bold inline section headings), `§\s*(\d+[a-z]?)`, `\bSeksyen\s+(\d+[A-Za-z]?)`, `มาตรา\s*([๐-๙0-9]+[A-Za-z]?)`, `\bSEC\.\s*(\d+[A-Za-z]?)`, `^#{1,6}\s+\*{1,2}(\d+[A-Za-z]?)\s+` (UK DPA 2018 bare-number headings), `[Ss]\.\s+(\d+[A-Za-z]?)` (DPA 2018 cross-refs).
+  - [src/daccord/registry/extract.py](../src/daccord/registry/extract.py) — `extract_framework()` orchestration: reads multi-doc markdown, dispatches, dedupes, sorts numerically. `compute_toy_gold_recall()` strips subsection suffix and checks base-section membership.
+- ✓ [scripts/extract_registry.py](../scripts/extract_registry.py) — tier-5 CLI. Flags mirror [parse_corpus.py](../envs/ingest/scripts/parse_corpus.py): `--ingest-manifest`, `--ingest-root`, `--registry-dir`, `--toy-gold`, `--frameworks <ids>`, `--no-skip-existing`, `--no-mlflow`, `--verbose`. Idempotent: per-framework skip when the prior manifest row's `source_sha256` set matches the current ingest manifest's `sha256_md` set. **Exits non-zero if any framework's toy-gold recall < 1.0** — CI / human reviewer use the exit code as the M1 gate signal.
+- ✓ [tests/test_registry.py](../tests/test_registry.py) — 29 tests covering per-framework extractors against representative fixtures (GDPR-style headings, PDPA-SG bullet form, Thai-numeral normalization, BDSG DE+EN merge, etc.), toy-gold recall (strip + match + missing-file edge case), dispatch-table integrity (9 frameworks), atomic-write idempotency, manifest sort + upsert semantics.
+
+**Artifacts (all committed):**
+
+- ✓ `data/registry/{framework_id}.json` × 9 — 9 framework registries (~30 KB total). `.gitignore` updated to allow `/data/registry/` so contributors without a GPU can use them.
+- ✓ [data/registry/manifest.jsonl](../data/registry/manifest.jsonl) — 9 rows; per-framework `citation_count`, `cites_per_page`, `toy_gold_recall`, `toy_gold_missing`, `sha256_registry`, `source_sha256` for downstream cache invalidation.
+- ✓ [data/registry/summary.md](../data/registry/summary.md) — human-readable table.
+
+**Per-framework results:**
+
+| Framework | Jurisdiction | Citations | Cites/Page | Toy-Gold Recall | Floor (≥) |
+|---|---|---:|---:|---:|---:|
+| `bdsg` | de | 97 | 1.10 | 1.00 | 70 ✓ |
+| `dpa_2012_ph` | ph | 72 | 1.31 | 1.00 | 30 ✓ |
+| `dpa_2018` | uk | 288 | 0.55 | 1.00 | 150 ✓ |
+| `gdpr` | eu | 92 | 1.18 | 1.00 | 90 ✓ |
+| `loi_il` | fr | 126 | 0.86 | 1.00 | 50 ✓ |
+| `pdpa_my` | my | 146 | 0.73 | 1.00 | 100 ✓ |
+| `pdpa_sg` | sg | 91 | 0.73 | 1.00 | 50 ✓ |
+| `pdpa_th` | th | 96 | 1.23 | 1.00 | 70 ✓ |
+| `uk_gdpr` | uk | 103 | 0.70 | 1.00 | 90 ✓ |
+
+**What surprised:**
+
+- **GDPR Article 15 has no heading in Marker output.** Between Article 13 (line 232) and Article 16 (post `# S e c t i o n 3` letter-spaced heading), the Article 14 and 15 heading text was dropped. Recall test caught this — fix was to also match plural cross-refs (`\bArticles?\s+(\d+)`) and expand "Articles 15 to 22" ranges. Dense body-text cross-referencing backfills the gap. **General lesson**: M1 gate's empirical anchor (toy-gold recall) is doing real work — first naive run had `gdpr: recall=0.80 missing=['15']`.
+- **PDPA-SG section headings are bullet-form, not `Section N`.** The actual headings read `- 13. Consent required` in the TOC and `**13.**` or `**26D.**—(1)` in body — `Section N` only appears in cross-references. First naive run had `pdpa_sg: count=10 cites/p=0.08 recall=0.25`. After adding bullet-form + bold inline patterns, count jumped to 91 and recall to 1.00.
+- **R8 follow-up (PDPA-MY Malay regex) confirmed working.** Tier-5 PDPA-MY extracted 146 unique section IDs (vs ~143 estimated structure); the `Seksyen N` regex catches what the tier-4 R8 spot-check's EN-only regex missed.
+- **Idempotency required removing all timestamps from the payload.** Initial design carried `extracted_at: datetime` on both `FrameworkRegistry` and `RegistryManifestEntry`; reruns diff'd by 11 files. Removing those fields (audit info now lives in `extractor_version` + `source_sha256` + git mtime) yields byte-identical reruns. Verified by hashing all 11 output files across two consecutive runs.
+
+**Verification (all green this MR):**
+
+```
+docker compose run --rm root uv lock --check            # in-sync
+docker compose run --rm root uv run ruff check .        # clean
+docker compose run --rm root uv run ruff format --check .  # clean (79 files)
+docker compose run --rm root uv run pyright             # 0 errors, 0 warnings
+docker compose run --rm root uv run pytest              # 114 passed (incl. 29 new registry tests)
+docker compose run --rm root uv run python scripts/extract_registry.py
+# → "[done] processed=9 skipped=0" + every framework's recall=1.00 → exit 0
+docker compose run --rm root uv run python scripts/extract_registry.py
+# → "[done] processed=0 skipped=9" (idempotency confirmed)
+```
 
 ---
 
