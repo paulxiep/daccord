@@ -250,16 +250,13 @@ class TestConfigLoad:
 class TestFreeTier:
     def test_estimate_cost_is_zero_for_free_tier(self, costs_env: Path) -> None:
         assert (
-            estimate_cost("groq", "meta-llama/llama-4-scout-17b-16e-instruct", 5_000, 5_000)
-            == 0.0
+            estimate_cost("groq", "meta-llama/llama-4-scout-17b-16e-instruct", 5_000, 5_000) == 0.0
         )
         assert estimate_cost("google_gemini", "gemini-3.1-flash-lite", 5_000, 5_000) == 0.0
 
     def test_preflight_under_rpd_cap_passes(self, costs_env: Path) -> None:
         # cap 14400; no calls today; preflight returns 0.0 cost
-        assert (
-            preflight("groq", "meta-llama/llama-4-scout-17b-16e-instruct", 5_000, 5_000) == 0.0
-        )
+        assert preflight("groq", "meta-llama/llama-4-scout-17b-16e-instruct", 5_000, 5_000) == 0.0
 
     def test_preflight_over_rpd_cap_raises(self, costs_env: Path) -> None:
         # Seed 1500 calls under google_gemini today; preflight (which would push to 1501) raises

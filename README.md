@@ -71,16 +71,36 @@ Per-jurisdiction + per-language breakdowns are aggregated from CSV rows at read 
 
 ## Current State
 
-Phase 1 (local validation) in progress. Milestone tags follow the [development plan](docs/development_plan.md).
+Phase 1 (local validation) in progress. Phase 2 (SageMaker hosting) triggered separately when M4 lands a publishable delta. See [development plan](docs/development_plan.md) for the milestone gate definitions + cut criteria; the table below is the live status.
 
-- **[M0 partial — 2026-05-25]** Eval bar locked. 20-pair toy gold built (9/20 author-verified, 11/20 claude-extract-only pending paraphrase pass — deferred to pre-tier-4 MR). Tokenizer audit PASS on th/fr/de/en for **Qwen3-8B** (the chosen QLoRA base, swapped from Qwen2.5-7B mid-session). Thai parser bake-off shipped — Marker locked. Baseline numbers on partial-verified gold include Qwen 3-8B (local, NF4), Llama 4 Scout (Groq), Qwen 3-32B (Groq), and Gemini 3.1 Flash Lite; judged by Llama 4 Scout. See [eval/baseline_toy.csv](eval/baseline_toy.csv) for the row-by-row numbers.
-- **[2C — 2026-05-24]** Tokenizer audit (`th` 0.575 tok/char · `fr` 0.520 · `de` 0.303 · `en` 0.213 — all PASS). R4 resolved.
-- **[2D — 2026-05-24]** Thai parser bake-off (5-page sample, 61 hand-verified Thai citations) — Marker recall=1.0 precision=1.0 reading-order=5.0 vs Typhoon-OCR reading-order=4.0; Marker locked for both EN and TH. R1 resolved.
-- **[2B — 2026-05-23]** Eval harness end-to-end (citation match + LLM-as-judge, 14-col CSV contract, MLflow nested-run logging).
-- **[1A–1D — 2026-05-22]** Repo skeleton + MLflow plumbing + per-provider RPD caps (Groq + Gemini + Cerebras + DeepSeek) + 13-PDF corpus across 8 jurisdictions on disk.
-- **[2026-05-25 refactor]** Dev environment migrated to Docker Compose (Linux containers); consumer pivoted from chatbot → side-by-side comparison + CSV export (`src/daccord/serving/HybridRouter`); shared 10-RPM throttle + Gemini transient-error retry + Groq APIError safety net wired into all API clients; eval runner refactored to pair-major iteration (all generators see each pair before moving on) so per-provider RPM density stays low.
+### Phase 1 — Local validation
 
-Pending the next MR (pre-tier-4): 11 claude-extract-only rows pending paraphrase semantic pass in `data/gold/toy_v1.jsonl`; FR Loi I+L native-validation coverage at 2/3 pairs (decide accept-vs-repoint); tier 4 (full corpus parse to markdown via Marker).
+- **M0 — Eval bar locked (⚠ partial, 2026-05-25)**
+  - 20-pair toy gold built; 9/20 author-verified, 11/20 claude-extract-only pending paraphrase semantic pass (deferred but no longer gates downstream — only affects toy `eval/baseline_toy.csv`).
+  - Tokenizer audit on **Qwen3-8B** (locked as the QLoRA base): PASS for th (0.575 tok/char), fr (0.520), de (0.303), en (0.213). R4 resolved.
+  - Thai parser bake-off: Marker locked (recall=1.0, precision=1.0, reading-order=5.0 vs Typhoon-OCR 4.0 on 5-page PDPA-TH sample with 61 hand-verified Thai citations). R1 resolved.
+  - 4 baseline comparators on toy gold judged by Llama 4 Scout: Qwen 3-8B (local NF4), Llama 4 Scout (Groq), Qwen 3-32B (Groq), Gemini 3.1 Flash Lite. Numbers in [eval/baseline_toy.csv](eval/baseline_toy.csv).
+  - Eval harness: citation-exact-match + LLM-as-judge, 14-column CSV contract, MLflow nested-run logging, pair-major iteration so per-provider RPM density stays under free-tier ceilings.
+  - **Strict bar pending**: 11 claude-extract-only rows pending paraphrase pass; FR Loi I+L native-validation coverage at 2/3 pairs (decide accept-vs-repoint). Both decoupled from M1+ — toy gold re-eval is a 5-min run.
+
+- **M1 — Corpus + registry frozen (✓ 2026-05-26)**
+  - ✓ 13-PDF corpus parsed to markdown via Marker (tier 4): 10 parses + 3 cached, **~37 min wall-time, 0 failures**. Manifest at [data/ingest/manifest.jsonl](data/ingest/manifest.jsonl).
+  - ✓ R8 PASS: browser-print PDFs (UK-GDPR, UK DPA 2018, FR Loi I+L) hit **1.29× the regulator-baseline citation density** — no R8 fallback needed. Report at [data/ingest/r8_spotcheck.txt](data/ingest/r8_spotcheck.txt).
+  - ✓ Per-framework citation-registry extraction (tier 5): 9/9 frameworks extracted from the parsed markdown, **100% toy-gold base-section recall** on every framework. Registries at [data/registry/](data/registry/) (gdpr 92, uk_gdpr 103, dpa_2018 288, bdsg 97, loi_il 126, pdpa_sg 91, pdpa_th 96, pdpa_my 146, dpa_2012_ph 72 citation IDs). R8 follow-up resolved: PDPA-MY Malay regex (`Seksyen`) catches what the EN-only baseline missed.
+
+- **M2 — Gold set frozen** ⏳ — active (unblocked 2026-05-26). Target ≥500 hand-validated pairs via 4-model ensemble (Llama 4 Scout / Qwen 3-32B / Gemini 3.1 Flash Lite / DeepSeek V3) + tiering script + jurisdiction-disjoint train/val/test split.
+- **M3 — Small-sweep validated** ⏳ — blocked on M2. 1 epoch × 200 pairs end-to-end, adapter saves/reloads cleanly, MLflow autolog with adapter SHA.
+- **M4 — Eval delta proven (Phase 1 done)** ⏳ — blocked on M3. Three-tier eval × 4 comparators × 2 slices (in-domain + out-of-domain) per-jurisdiction breakdown.
+
+### Phase 2 — SageMaker hosting
+
+- **M5 — Endpoint live, captured, torn down** ⏳ — triggered separately when M4 has a publishable delta + a concrete demo opportunity. Target spend <$100; demo recording is the durable artifact, not the running endpoint.
+
+### Cross-milestone infrastructure (in place since 2026-05-25)
+
+- **Dev environment**: Docker Compose, 7 services (`root`, `eval`, `audit`, `bakeoff`, `baseline`, `ingest`, `consumer`); shared uv wheel cache + HF model cache + surya datalab cache via named volumes; per-env Python split (3.13 for marker-pdf-using `bakeoff` + `ingest`; 3.14 elsewhere).
+- **Cost discipline**: per-provider RPD caps (Groq 14400 / Gemini 1500 / Cerebras 1000 / DeepSeek 1000) wired into the cost layer; shared 10-RPM throttle, Gemini transient-error retry, Groq APIError safety net in all clients; eval runner uses pair-major iteration so per-provider density stays well under any single provider's free-tier cap.
+- **Hybrid serving**: `HybridRouter` (retrieval-first + QLoRA fallback, per-response provenance tagging) shared between the local Streamlit demo and the SageMaker custom-inference handler.
 
 ## Development environment
 
@@ -114,6 +134,25 @@ Per-env Python split: root/eval/audit/baseline/consumer on 3.14; bakeoff on 3.13
 
 - [Development plan (Phase 1 → Phase 2)](docs/development_plan.md) — tiers, milestones, gates, risk register
 
+### Milestone history
+
+| Milestone | Date | What landed |
+|---|---|---|
+| **1A–1D** | 2026-05-22 | Repo skeleton + MLflow plumbing + per-provider RPD caps (Groq/Gemini/Cerebras/DeepSeek) + 13-PDF corpus on disk |
+| **2B** | 2026-05-23 | Eval harness end-to-end (citation match + LLM-as-judge, 14-col CSV contract, MLflow nested-run logging) |
+| **2C** | 2026-05-24 | Tokenizer audit PASS on th/fr/de/en for Qwen3-8B; R4 resolved |
+| **2D** | 2026-05-24 | Thai parser bake-off — Marker locked (5-page sample, 61 hand-verified Thai citations); R1 resolved |
+| **Docker migration** | 2026-05-25 | Dev env moved to Docker Compose (6→7 Linux services); consumer pivoted chatbot → side-by-side comparison + CSV; shared 10-RPM throttle + retry layer in API clients; pair-major eval iteration |
+| **3A (M0)** | 2026-05-25 | 4 baseline comparators on toy gold judged by Llama 4 Scout; `envs/baseline/` + `LocalHFClient` + `GroqJudge` shipped; Qwen3-8B locked as QLoRA base |
+| **4 (M1)** | 2026-05-26 | 13-PDF corpus parsed to markdown via Marker; `envs/ingest/` + 7th compose service; surya weights cached + `hf_transfer` (~65× download speedup); R8 PASS at 1.29× regulator-baseline citation density |
+| **5 (M1)** | 2026-05-26 | Per-framework citation-registry extraction — 9/9 frameworks, 100% toy-gold base-section recall, idempotent reruns; closes M1 |
+| **6–9 (M2)** | TBD | Ensemble generation + tiering + gold freeze (≥500 pairs) + jurisdiction-disjoint splits |
+| **10–11 (M3)** | TBD | Training scaffold + small-sweep (1 epoch × 200 pairs) |
+| **12–13 (M4)** | TBD | Full QLoRA train + three-tier eval × 4 comparators × 2 slices — Phase 1 done |
+| **14–18 (M5)** | TBD (Phase 2) | SageMaker endpoint stand-up via boto3 + smoke test + capture + teardown |
+
+### Release targets
+
 | Version | Date | Focus |
 |---|---|---|
 | **v0 MVP** | 2026 Q2 | Privacy: SEA-4 + EU(spine+UK+DE+FR); QLoRA fine-tune on Qwen3-8B; three-tier eval (citation exact match + LLM-as-judge + human spot-check) with retrieval baseline + in/out-of-domain stratification; hybrid serving (retrieval + fine-tune fallback with provenance tagging); Streamlit side-by-side comparison + CSV export |
@@ -122,7 +161,7 @@ Per-env Python split: root/eval/audit/baseline/consumer on 3.14; bakeoff on 3.13
 
 ## Known Limitations
 
-- **Browser-print PDFs for UK + FR**: UK-GDPR, UK DPA 2018, and FR Loi Informatique et Libertés have no scraper-friendly consolidated PDFs (legislation.gov.uk and Légifrance expose only HTML). The corpus falls back to browser print-to-PDF for these three sources — 5–60× larger files with embedded page chrome. Risk R8 in the development plan; spot-check planned at tier 4 against a regulator-issued reference (BDSG).
+- **Browser-print PDFs for UK + FR**: UK-GDPR, UK DPA 2018, and FR Loi Informatique et Libertés have no scraper-friendly consolidated PDFs (legislation.gov.uk and Légifrance expose only HTML). The corpus falls back to browser print-to-PDF for these three sources — 5–60× larger files with embedded page chrome. Risk R8 in the development plan; tier-4 spot-check **PASS** at 1.29× regulator-baseline citation density (report at [data/ingest/r8_spotcheck.txt](data/ingest/r8_spotcheck.txt)).
 - **Gemini free-tier daily cap**: `gemini-3.1-flash-lite` ships 15 RPM / 500 RPD on the free tier. The earlier `gemini-2.5-flash` daily cap was as low as 20 RPD on some accounts, which exhausted mid-baseline; the project standardised on 3.1 Flash Lite and the Llama 4 Scout judge sidesteps any per-minute spikes via the 10-RPM global throttle + transient-error retry layer + pair-major iteration (per-provider density stays at ~1 call per pair-cycle, well under any single provider's cap).
 - **No `envs/training/` env yet**: tier 10A (QLoRA training script) will add a 7th compose service. RTX 5080 (16 GB VRAM) is sufficient for 7B QLoRA but a small-sweep at M3 will validate OOM headroom; Unsloth fallback documented in the dev plan if VRAM is tight at full `max_seq_len`.
 

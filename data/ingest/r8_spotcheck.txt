@@ -1,0 +1,18 @@
+pdf_relpath                                                 pages  cites    chars/p    cites/p  src
+----------------------------------------------------------------------------------------------------
+data/raw/de/bdsg/bdsg_de_current.pdf                           45    349     3924.9       7.76  REG
+data/raw/de/bdsg/bdsg_en_current.pdf                           43    282     3389.2       6.56  REG
+data/raw/eu/gdpr/reg_2016_679_consolidated.pdf                 78    347     2535.8       4.45  REG
+data/raw/my/pdpa_my/pdpa_my_act709_bilingual.pdf              191     49     1639.8       0.26  REG
+data/raw/my/pdpa_my/pdpa_my_amendment_act_a1727_2024.pdf       10     16     1015.2       1.60  REG
+data/raw/ph/dpa_2012_ph/dpa_2012_ph.pdf                        26     48     1922.2       1.85  REG
+data/raw/ph/dpa_2012_ph/dpa_2012_ph_irr_amended.pdf            29     79     3589.5       2.72  REG
+data/raw/sg/pdpa_sg/pdpa_sg_current.pdf                       124    171     1650.6       1.38  REG
+data/raw/th/pdpa_th/pdpa_th_english_2019.pdf                   34    240     3009.7       7.06  REG
+data/raw/th/pdpa_th/pdpa_th_thai_2019.pdf                      44    272     1829.8       6.18  REG
+data/raw/fr/loi_il/loi_78_17_consolidated.pdf                 146    805     1836.0       5.51   BP
+data/raw/uk/dpa_2018/dpa_2018_current.pdf                     520   1930     3760.0       3.71   BP
+data/raw/uk/uk_gdpr/uk_gdpr_current.pdf                       148    917     4649.8       6.20   BP
+Regulator avg:     chars/p=2450.7  cites/p=3.98  (n=10)
+Browser-print avg: chars/p=3415.2  cites/p=5.14  (n=3)
+Browser-print citation density vs regulator: 1.29× → PASS

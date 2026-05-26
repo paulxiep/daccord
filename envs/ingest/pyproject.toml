@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "daccord-ingest-env"
+version = "0.0.0"
+description = "Tier-4 full-corpus PDF→markdown env. Marker (locked at 2D) runs on the GPU; this env keeps the heavy marker-pdf line out of the shared daccord venv."
+# marker-pdf 1.10 pins pillow<11, which has no cp314 wheels — same constraint
+# as envs/bakeoff/. When marker-pdf lifts the ceiling, bump to 3.14.
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "daccord",
+    "marker-pdf>=1.10,<2",
+    # pymupdf gives us a cheap page_count without re-instantiating Marker.
+    "pymupdf>=1.27,<2",
+    # marker-pdf's transitive transformers needs accelerate when device_map
+    # selects CUDA. Match the bakeoff env's pin.
+    "accelerate>=1.0,<2",
+    # hf_transfer uses Rust + parallel chunked downloads — typically 5–10×
+    # faster than the default single-stream `huggingface_hub` downloader, which
+    # matters because surya's ~3 GB of weights downloads on first run.
+    # Activated by HF_HUB_ENABLE_HF_TRANSFER=1 (set in docker-compose.yml's
+    # `ingest` service env). Safe to leave installed without the env var.
+    "hf_transfer>=0.1,<1",
+]
+
+[dependency-groups]
+dev = ["pytest>=9.0,<10"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+daccord = { path = "../..", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["../../src", "scripts"]
+addopts = "-q"

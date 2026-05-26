@@ -170,9 +170,7 @@ class TestGroqClient:
         assert today_requests("groq") == 1
 
         # SDK call shape (regression guard)
-        assert (
-            completions.captured_kwargs["model"] == "meta-llama/llama-4-scout-17b-16e-instruct"
-        )
+        assert completions.captured_kwargs["model"] == "meta-llama/llama-4-scout-17b-16e-instruct"
         assert completions.captured_kwargs["response_format"] == {"type": "json_object"}
         assert completions.captured_kwargs["temperature"] == 0.0
         assert completions.captured_kwargs["messages"] == [

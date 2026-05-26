@@ -30,11 +30,17 @@ mlartifacts/
 # Notebooks
 .ipynb_checkpoints/
 
-# Data — raw PDFs, parsed markdown, ensemble outputs, splits all gitignored
-# Only data/gold/ (hand-validated mapping pairs) is committed
+# Data — raw PDFs gitignored (sourced via scripts/download_corpus.py +
+# data/sources.yaml); ensemble + tiering + splits gitignored (regenerated).
+# Parsed markdown (data/ingest/) IS committed: ~4 MB total, unblocks tier 5+
+# work for contributors without a GPU (re-parsing requires Marker + ~37 min).
+# Per-framework citation registries (data/registry/, tier 5) ARE committed:
+# ~30 KB total, deterministic from the parsed markdown + extractor version,
+# and consumed as input by tier 6A's ensemble JSON-schema constraint.
+# Only data/gold/ (hand-validated mapping pairs) + per-stage manifests are
+# committed for the other stages.
 /data/raw/
 /data/parsed/
-/data/registry/
 /data/ensemble/
 /data/tiering/
 /data/splits/
