@@ -30,12 +30,12 @@ D'accord ([README.md](../README.md)) is a private QLoRA fine-tune of Qwen3-8B fo
 - **Harvey AI** — broad legal AI ($11B val); frontier-model approach; citation hallucination remains a known weakness on niche SEA regs.
 - **SaulLM-7B** — closest methodological cousin (7B legal specialist, pretrained on 19M docs). Different task; useful prior-art reference.
 
-**Effort baseline**: ~3 wk (~0.5–0.7 EM). AWS cost ceiling **$50–100**.
+**Effort baseline**: ~2 wk (~0.4–0.6 EM) under the Bedrock-batch M2 re-plan (~$3.25 Phase 1 + $50–100 Phase 2 SageMaker). Original plan was ~3 wk under the free-tier-only assumption; the ~1-week compression comes from (a) F9 strong-mid auto-label ensemble cutting hand-validation labor from ~25 h to ~10 h, (b) overnight batch jobs removing the local-dispatcher constraint, and (c) AWS account pulled forward to M2 so Phase 2 cuts to ~2 days when triggered.
 
 ### Phased execution
 
-- **Phase 1 — Local validation (M0–M4)**: full data pipeline + QLoRA training on RTX 5080 + three-tier eval. **All deliverables except the SageMaker endpoint close here.** No AWS-runtime dependency, no AWS spend risk.
-- **Phase 2 — SageMaker hosting (M5)**: deploy adapter to endpoint via boto3, smoke test, capture, tear down. Decoupled from Phase 1; can be triggered when a concrete demo opportunity justifies the $50–100 spend.
+- **Phase 1 — Local validation + cloud-batch M2 ensemble (M0–M4)**: full data pipeline + QLoRA training on RTX 5080 + three-tier eval. M2 ensemble auto-labels via async Bedrock + Google AI Studio batch jobs (~$3.13 spend, overnight); AWS account is stood up at M2 (tier 6C, pulling 14A/14B forward from M5) so the SageMaker work at M5 is partial-warm. **All deliverables except the SageMaker endpoint close here.** Total Phase 1 paid-API spend: **~$3.25**.
+- **Phase 2 — SageMaker hosting (M5)**: deploy adapter to endpoint via boto3 in `ap-southeast-1`, smoke test, capture, tear down. Decoupled from Phase 1 timing; can be triggered when a concrete demo opportunity justifies the $50–100 SageMaker spend. AWS account already scoped at M2 → Phase 2 only needs teardown scripts + S3 model packaging + endpoint stand-up.
 - **Phase C — AgentCore agent (future, separate repo)**: consumes d-accord's deployed endpoint as a tool. Out of scope here.
 
 ---
@@ -56,7 +56,7 @@ D'accord ([README.md](../README.md)) is a private QLoRA fine-tune of Qwen3-8B fo
 
 **Notation**: tasks are numbered by tier. **Numbers are ordinal — tier *N+1* cannot start until tier *N* closes.** **Letters within a tier are parallel — 1A, 1B, 1C run concurrently.** Gates `[M*]` mark milestone checkpoints; see §4 for DoD and cut criteria.
 
-### Phase 1 — Local validation
+### Phase 1 — Local validation + cloud-batch M2 ensemble
 
 | Tier | Tasks | Type | Notes |
 |---|---|---|---|
@@ -67,24 +67,26 @@ D'accord ([README.md](../README.md)) is a private QLoRA fine-tune of Qwen3-8B fo
 | **4** | Parse all PDFs to markdown (Marker, locked for both EN and TH) | sequential | Needs 1D complete + 3B parser choice. **Watch R8**: 3 sources (UK-GDPR, UK DPA 2018, FR Loi I+L) come from browser print-to-PDF (Légifrance/legislation.gov.uk expose no scraper-friendly consolidated PDF) — 5–60× larger than regulator-issued PDFs, layout may confuse Marker |
 | **5** | Citation registry extraction per framework | sequential | |
 |  | **[M1 gate]** | | corpus + registries frozen |
-| **6** | 6A ensemble prompt + JSON schema (citations constrained to registry from 5) · 6B tiering script | parallel | |
-| **7** | 7A ensemble generation — 4-model OSS via free-tier APIs (Llama 4 Scout/Groq + Qwen 3-32B/Groq or Cerebras + Gemini 3.1 Flash Lite/Google AI Studio + DeepSeek V3) (~3d **async**) · 7B splits script · 7C hand-validate completed framework-pairs as they land | parallel | 7A async pacing now driven by free-tier RPD limits, not API spend; 7B/7C fill the wait |
+| **6** | 6A ensemble prompt + JSON schema (citations constrained to registry from 5) · 6B tiering script · **6C AWS preliminary (tier 14A/B pulled forward from M5)**: IAM user `d-accord-dev` + scoped S3 bucket `s3://daccord-dev-{account_id}/` in **`ap-southeast-1`** + AWS Budgets alarm ($50/$100) + Bedrock model-access requests for the 4 chosen ensemble models · 6D Google AI Studio billing enable + `GEMINI_PAID_API_KEY` provisioning | parallel | 6A/6B are code; 6C/6D are account setup. All four can run in parallel on d7. |
+| **7** | 7A ensemble generation — **4-seat F9 ensemble via async batch APIs**: Llama 4 Scout (Bedrock batch) + Llama 4 Maverick (Bedrock batch) + Claude Haiku 4.5 (Bedrock batch) + Gemini 3.1 Flash (Google AI Studio batch). Submit 4 batch jobs at evening of d7, results back morning of d8 (typical 1–12 h, 24 h SLA). · 7B splits script · 7C hand-validate completed framework-pairs as they land | parallel | 7A is fire-and-forget overnight — no local dispatcher running for hours. F9 strong-mid models reduce expected MED/LOW hand-val rate to ~10% (vs ~25% on cheap free-tier ensemble), cutting 7C labor from ~25 h to ~10 h. |
 | **8** | Tiering (HIGH/MED/LOW/SALVAGE) + complete hand-validation + HIGH-tier per-jurisdiction spot-check | sequential | Needs 7A complete + all 7C |
 | **9** | Gold freeze (≥500 pairs) + jurisdiction-disjoint train/val/test splits + dataset SHA | sequential | |
-|  | **[M2 gate]** | | gold + splits frozen with version hash |
-| **10** | 10A `training/train.py` (HF `transformers` + `peft` + `bitsandbytes` + `trl`) · 10B small-sweep config | parallel | 10A can actually start during tier 7 idle time |
+|  | **[M2 gate]** | | gold + splits frozen with version hash; AWS account scoped + Bedrock access provisioned |
+| **10** | 10A `training/train.py` (HF `transformers` + `peft` + `bitsandbytes` + `trl`) · 10B small-sweep config | parallel | 10A can start during the 7A overnight window |
 | **11** | Small-sweep — 200 pairs × 1 epoch | sequential | Validates MLflow plumbing, adapter save/reload, OOM headroom |
 |  | **[M3 gate]** | | adapter saves/reloads · MLflow logs run + SHA · no OOM at target seq_len (else swap to Unsloth) |
 | **12** | 12A full QLoRA train + small hyperparam sweep (~overnight **async**) · 12B three-tier eval script + retrieval baseline (MPNet+FAISS over train-split source clauses) + `build_retrieval_index.py` · 12C draft Phase 2 deploy/teardown scripts + hybrid inference handler (`publish/sagemaker_handler.py`) + Streamlit side-by-side app (`consumer/app.py`) | parallel | 12A async; 12B/12C fill the wait. 12C is now substantive (~2–3 d) — don't rush. |
-| **13** | Three-tier eval across 4 comparators (fine-tune + base Qwen + Llama 70B + retrieval) run twice with `--slice-tag in-domain` and `--slice-tag out-of-domain`; per-jurisdiction + per-language breakdown aggregated from CSV rows | sequential | Slice tag goes to MLflow run metadata, not per-row (CSV contract stable per [eval/README.md](../eval/README.md)). |
+| **13** | Three-tier eval across 4 comparators (fine-tune + base Qwen + Llama 70B + retrieval) run twice with `--slice-tag in-domain` and `--slice-tag out-of-domain`; per-jurisdiction + per-language breakdown aggregated from CSV rows. Eval-judge calls route through **Bedrock Haiku 4.5** (account already warm from M2) instead of free-tier Gemini — eliminates the tier 13 RPD bottleneck. | sequential | Slice tag goes to MLflow run metadata, not per-row (CSV contract stable per [eval/README.md](../eval/README.md)). ~$0.10 spend over 500-pair eval. |
 |  | **[M4 gate]** | | Phase 1 done — eval CSV + MLflow history + adapter on disk |
 
 ### Phase 2 — SageMaker hosting (triggered separately)
 
+Tier 14A (IAM user) + 14B (Budgets alarm) + Bedrock model access were pulled forward to M2 (see tier 6C above). Only 14C + 14D remain at Phase 2.
+
 | Tier | Tasks | Type | Notes |
 |---|---|---|---|
-| **14** | 14A IAM user `d-accord-dev` + scoped S3 bucket with versioning · 14B AWS Budgets alarm ($50/$100) · 14C **teardown scripts committed before any stand-up** · 14D adapter + retrieval index + embedder snapshot + custom inference handler packaged to SageMaker S3 layout via `publish/package_model.py` | parallel | Stand-up (tier 15) blocked until 14C is in git |
-| **15** | SageMaker endpoint stand-up via boto3 (`ml.g5.xlarge`) | sequential | ~5–10 min cold start |
+| **14** | 14C **teardown scripts committed before any stand-up** (`scripts/teardown_endpoint.py`, `scripts/teardown_all.py --nuke`) · 14D adapter + retrieval index + embedder snapshot + custom inference handler packaged to SageMaker S3 layout via `publish/package_model.py` | parallel | Stand-up (tier 15) blocked until 14C is in git. 14A/14B already done at M2. |
+| **15** | SageMaker endpoint stand-up via boto3 (`ml.g5.xlarge`, `ap-southeast-1`) | sequential | ~5–10 min cold start |
 | **16** | Smoke test 10 source clauses via side-by-side comparison view (5 in-domain, 5 out-of-domain); verify provenance tags (`gold-retrieval` / `fine-tune-generalization`) return correctly + CSV export round-trip | sequential | |
 | **17** | Capture — recording + screenshots | sequential | |
 | **18** | Endpoint teardown | sequential | Within 48 h of capture · spend <$100 |
@@ -94,28 +96,33 @@ D'accord ([README.md](../README.md)) is a private QLoRA fine-tune of Qwen3-8B fo
 
 ## 3. Execution Notes
 
-**The two long async jobs** are **7A** (ensemble generation, ~3 days) and **12A** (full QLoRA train, overnight). 1D (PDF download) is also unattended but short. These are the only places idle time can accumulate — launch each *before* sitting down to its tier's parallel tasks (7B/7C and 12B/12C). 7A's ~3-day duration is now driven by free-tier RPD pacing across providers (Groq ~14400 RPD, Cerebras free-tier daily quota, Google AI Studio 1500 RPD, DeepSeek), not by API spend or rate limits — the ensemble runner schedules per-provider request streams against current free-tier quotas verified at run time.
+**The two long async jobs** are **7A** (ensemble generation, **overnight via async batch APIs**) and **12A** (full QLoRA train, overnight on local GPU). 1D (PDF download) is also unattended but short. Both 7A and 12A are submit-and-walk-away: 7A submits 4 batch jobs (3 to Bedrock in `ap-southeast-1`, 1 to Google AI Studio) at end of d7 and reads results back on d8 morning; 12A queues on the RTX 5080 at end of d11 and training completes overnight for the d12 eval pass.
 
-**Ensemble checkpointing**: write `data/ensemble/raw/{framework_pair}__{model}.jsonl` as each batch lands. Resume logic skips completed pairs so a free-tier RPD cap hit at hour 4 of 6 burns zero re-work; the runner waits for the daily reset and continues.
+**Ensemble checkpointing**: write `data/ensemble/raw/{framework_pair}__{model}.jsonl` as each batch job completes; the poll script (`scripts/run_ensemble.py --poll`) is idempotent and resumable — re-running picks up any unfinished jobs. Bedrock batch jobs survive operator-side interrupts because the work runs cloud-side.
 
 **Rough timeline** (solo dev, baseline velocity):
 
-| Days | Tiers | Closes |
-|---|---|---|
-| d1–3 | 1 + 2 + 3 | **M0** |
-| d4–6 | 4 + 5 | **M1** (end of week 1) |
-| d7–10 | 6 + 7 + 8 + 9 | **M2** |
-| d11–12 | 10 + 11 | **M3** |
-| d13–15 | 12 + 13 | **M4** — Phase 1 done |
-| later | 14 → 18 | **M5** (Phase 2, triggered separately) |
+| Days | Tiers | Closes | Notes |
+|---|---|---|---|
+| d1–3 | 1 + 2 + 3 | **M0** | unchanged |
+| d4–6 | 4 + 5 | **M1** (end of week 1) | unchanged |
+| d7 | 6A + 6B + **6C/6D AWS+Google account setup** | — | AWS prelim parallel with prompt/tiering code |
+| d7 eve | 7A submit (4 batch jobs) + 7B splits + start 7C hand-val | — | submit and walk away |
+| d8 morn | 7A poll/download (~1 h compute) + 8 tiering + finish 7C hand-val | — | F9 strong-mid ensemble → ~10 h total 7C labor (vs ~25 h on free-tier) |
+| d8 eve | 9 gold freeze + splits + dataset SHA + MLflow tags | **M2** | **3 days post-M1** (was 4) |
+| d9 | 10A train script + 10B sweep config | — | |
+| d10 | 11 small-sweep (200 pairs × 1 epoch) | **M3** | 2 days post-M2 (unchanged) |
+| d11 eve | 12A queue overnight train + 12B eval script + retrieval baseline + 12C deploy/Streamlit | — | parallel |
+| d12 | 13 three-tier eval (Bedrock Haiku 4.5 judge) | **M4** — Phase 1 done | **d12 (was d15) — 3 days saved** |
+| d13–14 | 14C teardown scripts + 14D S3 model packaging + 15 endpoint + 16 smoke + 17 capture + 18 teardown | **M5** | tier 14A/B already done at M2 → Phase 2 cuts to ~2 days |
 
 ---
 
 ## 4. Milestone Gates
 
-### Phase 1 — Local validation (M0 → M4)
+### Phase 1 — Local validation + cloud-batch M2 ensemble (M0 → M4)
 
-All ML substance happens here. No AWS resources stood up. Zero AWS spend risk. If Phase 2 is deferred indefinitely, Phase 1 still constitutes a complete deliverable set (eval CSV + MLflow runs + local-inference recording + README).
+All ML substance happens here. AWS account stood up at M2 (tier 6C, pulling 14A/14B forward) for Bedrock batch ensemble + future SageMaker reuse; total Phase 1 paid-API spend ~$3.25 (M2 ensemble ~$3.13, M4 eval judge ~$0.10). If Phase 2 is deferred indefinitely, Phase 1 still constitutes a complete deliverable set (eval CSV + MLflow runs + local-inference recording + README + provisioned AWS account ready for re-use).
 
 ### M0 — Eval Bar Locked (end of d3)
 
@@ -129,29 +136,31 @@ All ML substance happens here. No AWS resources stood up. Zero AWS spend risk. I
 - **Artifact**: `data/registry/*.json` per framework + parser bake-off score table
 - **Cut criterion**: Thai bake-off has no clear winner OR both candidates fail on Royal Gazette amendments → drop Royal Gazette (keep PDPA-TH core only); document the cut. (**Resolved 2D**: Marker won with 48/48 perfect citation extraction on PDPA-TH original; cut not triggered.)
 
-### M2 — Gold Set Frozen (~d10)
+### M2 — Gold Set Frozen (~d8)
 
-- **DoD**: ≥500 hand-validated gold pairs · ensemble outputs checkpointed · HIGH-tier stratified spot-check shows no jurisdiction <80% sample quality · jurisdiction-disjoint train/test split committed with dataset hash
-- **Artifact**: `data/gold/gold_v1.jsonl` + `data/splits/{train,val,test}.jsonl` + spot-check report
-- **Cut criterion**: gold <300 by d10 → drop Malaysia + Philippines (cheap completers); two-native-language story stays intact.
+- **DoD**: ≥500 hand-validated gold pairs · ensemble outputs checkpointed · HIGH-tier stratified spot-check shows no jurisdiction <80% sample quality · jurisdiction-disjoint train/test split committed with dataset hash · **AWS account scoped + Bedrock model access provisioned for the 4 F9 ensemble members + Google AI Studio billing enabled** (tier 14A/14B pulled forward from M5)
+- **Artifact**: `data/gold/gold_v1.jsonl` + `data/splits/{train,val,test}.jsonl` + spot-check report + `data/ensemble/raw/*.jsonl` (4 model outputs × ~30 framework-pairs each)
+- **Ensemble**: F9 strong-mid auto-label-optimized — **Llama 4 Scout** (Bedrock, 2025-04) + **Llama 4 Maverick** (Bedrock, 2025-04) + **Claude Haiku 4.5** (Bedrock, 2025-10) + **Gemini 3.1 Flash** (Google AI Studio, 2026-01). All capability-balanced strong-mid tier; tier 8 HIGH=4/4 agreement logic preserved. ~$3.13 spend at mid scope (~30 framework-pairs, ~12 K total raw candidates, ~3 K per seat).
+- **Cut criterion**: gold <300 by d8 → drop Malaysia + Philippines (cheap completers); two-native-language story stays intact. Secondary cut: any single Bedrock model-access request still pending by d7 morning → fall back to a 3-seat Bedrock-only ensemble (drop Gemini, retier tier 8 to HIGH=3/3).
 
-### M3 — Small-Sweep Validated (~d12)
+### M3 — Small-Sweep Validated (~d10)
 
 - **DoD**: 1 epoch × 200 pairs trains end-to-end · loss curve sensible · adapter saves+reloads cleanly · MLflow autolog shows the run with adapter SHA logged
 - **Artifact**: MLflow screenshot + sanity-check inference output
 - **Cut criterion**: OOM at QLoRA-7B on the 5080 → drop max_seq_len 4096→2048, add gradient checkpointing, micro-batch 1 + grad-accum 16. If still OOM, **swap to Unsloth** before full train.
 
-### M4 — Eval Delta Proven (~d15) — Phase 1 done
+### M4 — Eval Delta Proven (~d12) — Phase 1 done
 
 - **DoD**: Three-tier eval against M2 gold · per-jurisdiction + per-language breakdown · delta vs M0 baselines numerically captured
 - **Artifact**: `eval/results_v1.csv` + per-jurisdiction breakdown table; MLflow run history; updated README
-- **Cut criterion**: fine-tune delta vs base Qwen <5% on Tier-1 citation accuracy AND negative vs Llama 3.x 70B on every jurisdiction AND **no advantage over the retrieval baseline on the out-of-domain slice** → **do not push to SageMaker**. The retrieval-baseline qualifier is what makes the cut honest: if retrieval ties or beats fine-tune everywhere, ship as retrieval-only (architecture pivot), don't ship the heavier serving stack just to preserve the original framing. Document the honest negative result in the eval CSV. (No paid-API spend to tear down — ensemble + baselines + judge are all free-tier OSS.)
+- **Eval-judge routing**: Bedrock Haiku 4.5 (account already warm from M2) instead of free-tier Gemini — eliminates tier 13's prior 500-RPD bottleneck. ~$0.10 spend over 500-pair × 4-comparator eval.
+- **Cut criterion**: fine-tune delta vs base Qwen <5% on Tier-1 citation accuracy AND negative vs Llama 3.x 70B on every jurisdiction AND **no advantage over the retrieval baseline on the out-of-domain slice** → **do not push to SageMaker**. The retrieval-baseline qualifier is what makes the cut honest: if retrieval ties or beats fine-tune everywhere, ship as retrieval-only (architecture pivot), don't ship the heavier serving stack just to preserve the original framing. Document the honest negative result in the eval CSV. (Total Phase 1 paid-API spend if cut: ~$3.25 — the M2 ensemble batch already submitted, the M4 eval judge is post-train so can be skipped if cut triggers earlier.)
 
 ### Phase 2 — SageMaker hosting (M5)
 
-Trigger when M4 has a publishable delta AND there's a concrete reason (demo, runway) to absorb the AWS spend. Until then, Phase 1 artifacts are sufficient.
+Trigger when M4 has a publishable delta AND there's a concrete reason (demo, runway) to absorb the AWS spend. AWS account is already warm from M2 (IAM, S3, Budgets all done at tier 6C) so cold-start time is just teardown-scripts + S3 model packaging + endpoint stand-up (~2 days).
 
-### M5 — Endpoint Live, Captured, Torn Down (~2–3 days when triggered)
+### M5 — Endpoint Live, Captured, Torn Down (~2 days when triggered)
 
 - **DoD**: Endpoint live · side-by-side comparison view returns retrieval + fine-tune + base outputs with provenance tags for 5 test source clauses · CSV export verified · short screen recording captured · **endpoint torn down** · S3 artifact remains (cheap)
 - **Artifact**: Recording + 4–6 screenshots + adapter S3 URI
@@ -173,13 +182,14 @@ Trigger when M4 has a publishable delta AND there's a concrete reason (demo, run
 
 ## 6. Cloud / Cost Practices
 
-- **Phase 1 spend** is effectively $0 — ensemble (7A) + LLM-as-judge (13) both run on open-source models via free-tier APIs (Groq, Cerebras, Google AI Studio, DeepSeek direct). Only paid Phase 1 cost is ~$5–10 LlamaParse fallback if Marker fails on a specific document. One row per day in `costs/daily.csv` committed to repo with **request-count** entries against per-provider RPD caps (Groq ~14400 RPD, Google AI Studio ~1500 RPD; Cerebras + DeepSeek quotas verified at run time). Hard $5/provider paid-spill ceiling if free tier exhausts during a run.
-- **Phase 2 SageMaker discipline**: `ml.g5.xlarge` ≈ $1.40/hr; **target <48 h total live**; stand up → smoke test (10 prompts) → capture → tear down (~2 h live). Re-stand-up on demand from `scripts/deploy_endpoint.py`; budget for ~5–10 min cold start for live demos. Cold start now also loads the MPNet embedder + FAISS index alongside the 7B adapter (~1–2 GB additional read; negligible time impact vs the adapter load).
-- **IAM least-privilege**: dedicated user `d-accord-dev`, never root; two policies: `s3:* on arn:aws:s3:::d-accord-artifacts/*` and `sagemaker:* on resources tagged Project=d-accord`.
-- **S3 versioning** enabled on `d-accord-artifacts` (trivial cost, prevents adapter clobber).
-- **Teardown as committed code** before first stand-up (`scripts/teardown_endpoint.py`, `scripts/teardown_all.py --nuke`).
-- **API spend resilience**: ensemble outputs checkpointed per `(framework_pair, model)` to `data/ensemble/raw/`; resume logic skips completed pairs.
-- **Project tag** `Project=d-accord` on every AWS resource for cost attribution.
+- **Phase 1 spend** is **~$3.25** — M2 ensemble batch (~$3.13: F9 ensemble across Bedrock + Google AI Studio) + M4 eval judge (~$0.10: Bedrock Haiku 4.5 over 500-pair eval). Plus ~$5–10 LlamaParse fallback if Marker fails on a specific document. Free-tier providers (Groq, Cerebras, DeepSeek) are no longer in the critical path — the prior plan's free-tier RPD pacing was the source of the 3-day async wait at 7A. One row per day in `costs/daily.csv` committed to repo with provider-specific entries; F9 batch invocations log against `bedrock_batch` and `gemini_paid` provider keys with their pre-priced rates in [costs/config.toml](../costs/config.toml). Hard $5/day USD cap per provider enforces the ceiling.
+- **Phase 2 SageMaker discipline**: `ml.g5.xlarge` ≈ $1.40/hr in `ap-southeast-1`; **target <48 h total live**; stand up → smoke test (10 prompts) → capture → tear down (~2 h live). Re-stand-up on demand from `scripts/deploy_endpoint.py`; budget for ~5–10 min cold start for live demos. Cold start now also loads the MPNet embedder + FAISS index alongside the 7B adapter (~1–2 GB additional read; negligible time impact vs the adapter load).
+- **AWS account scope** (pulled forward from M5 to M2 prelim at tier 6C): IAM user `d-accord-dev`, never root; policies scoped to `s3:* on arn:aws:s3:::daccord-dev-{account_id}/*` (M2 artifacts) + `bedrock:InvokeModel*` + `bedrock:CreateModelInvocationJob*` on the 4 F9 models; `sagemaker:*` on resources tagged `Project=d-accord` added at M5. Region: **`ap-southeast-1`** (Singapore) for both Bedrock and SageMaker.
+- **S3 versioning** enabled on `daccord-dev-{account_id}` (trivial cost, prevents adapter clobber + protects M2 ensemble outputs from re-run overwrites).
+- **Teardown as committed code** before first SageMaker stand-up (`scripts/teardown_endpoint.py`, `scripts/teardown_all.py --nuke`). Bedrock batch jobs are on-demand (no persistent endpoint) so M2 needs no teardown beyond cost-tracker reconciliation.
+- **API spend resilience**: ensemble outputs checkpointed per `(framework_pair, model)` to `data/ensemble/raw/`; batch poll script (`scripts/run_ensemble.py --poll`) is idempotent and resumes if interrupted. Bedrock batch jobs run cloud-side and survive operator-side interrupts.
+- **Project tag** `Project=d-accord` on every AWS resource (S3 bucket, Bedrock batch jobs, SageMaker endpoint, IAM policies) for cost attribution.
+- **AWS Budgets alarm**: $50 warning + $100 hard threshold scoped to the `Project=d-accord` cost-allocation tag — established at tier 6C, applies across M2 and M5.
 
 ---
 
@@ -189,11 +199,11 @@ Trigger when M4 has a publishable delta AND there's a concrete reason (demo, run
 |---|---|---|---|---|---|
 | R1 | Thai parser bake-off has no clear winner; registries unreliable | Medium | High (kills SEA differentiation) | Bake-off in M0/M1 on 5-page sample; cut = drop Royal Gazette, keep core PDPA-TH | ~~Day-2 bake-off scores cluster within 5% across all 3 parsers~~ **Resolved 2D**: Marker locked (48/48 citation extraction, ~2× faster than Typhoon; PaddleOCR candidate dropped pre-execution). |
 | R2 | Ensemble agreement collapses on SEA frameworks (shared blind spots) | Medium-High | High (gold set thin) | Stratified human spot-check on HIGH-tier *per jurisdiction* (M2); cut = drop weakest 2 SEA jurisdictions | HIGH-tier spot-check <70% on any one jurisdiction |
-| R3 | Gold dataset stalls <500 pairs by M2 | Medium | Medium (eval power weakens) | Cut to 6 jurisdictions (drop MY + PH); reuse HIGH-tier with 10% audit as proxy | By d8, validation pace projects <400 pairs by d10 |
+| R3 | Gold dataset stalls <500 pairs by M2 | Medium | Medium (eval power weakens) | Cut to 6 jurisdictions (drop MY + PH); reuse HIGH-tier with 10% audit as proxy | By d8 morning (after 7A batch results land), HIGH-tier yield projects <400 pairs at full hand-val |
 | R4 | Qwen3-8B tokenizer fragments Thai/FR worse than expected | Low-Medium | High (kills language-validation moat) | M0 tokenizer audit before training plumbing; swap to SeaLLM-v3 or Typhoon-7B if Thai byte-fallback >20% | Audit shows >2.5 tokens/char on Thai or byte-fallback artifacts |
 | R5 | RTX 5080 OOM at QLoRA-7B with full seq_len | Medium | Medium (slows training) | M3 small-sweep catches before full train; mitigations: max_seq_len 2048, gradient checkpointing, micro-batch 1 + grad-accum 16; **swap to Unsloth** if needed | Small-sweep OOMs at any seq_len >1024 |
 | R6 | Fine-tune delta vs frontier baseline marginal or negative | Medium | High (kills the headline value claim — "small specialist beats / matches frontier") | M0 baselines set expectation early; M4 cut = document honest negative result and skip Phase 2 | Tier-1 citation accuracy delta vs base Qwen <5% by mid-train checkpoint |
-| R7 | Free-tier RPD exhaustion stalls ensemble (Phase 1 spend is $0 OSS-via-free-tier; risk is rate, not cost) | Low | Low (delays, not $ ceiling breach) | Per-provider RPD caps + checkpointed ensemble outputs; runner waits for daily reset and resumes; hard $5/provider paid-spill ceiling if absolutely needed | Free-tier RPD exhaustion on 2 providers within same eval-pass window |
+| R7 | Bedrock model-access provisioning or Google AI Studio billing setup delays 7A submission past d7 evening | Low-Medium | Low (1-day slip, not $ ceiling breach) | All 4 F9 models requested in parallel at d7 morning under tier 6C; if any single model is still pending by d7 evening, **fall back to 3-seat Bedrock-only ensemble** (drop Gemini; retier tier 8 HIGH=3/3 with documented impact); hard $5/day USD cap per provider in [costs/config.toml](../costs/config.toml) guards spend ceiling. Batch jobs run cloud-side so operator-side interrupts are free. | Any Bedrock `bedrock:ListFoundationModels` call at d7 morning returns `modelLifecycle.status != ACTIVE` for a chosen model OR Google AI Studio billing enable still pending |
 | R8 | Browser-print PDFs (UK-GDPR, UK DPA 2018, FR Loi I+L) parse noisily under Marker — Légifrance + legislation.gov.uk expose no scraper-friendly consolidated PDF, so 1D fell back to print-to-PDF (5–60× larger than regulator-issued PDFs, embedded page chrome) | Medium | Medium (registry drift on EU-spine + UK) | At tier 4, spot-check Marker output on these 3 vs a regulator-issued reference (e.g., BDSG); fallback = headless-browser PDF export with print-CSS suppression, or source from Legifrance API / legislation.gov.uk Atom feed | Tier 4 Marker output for UK/FR contains >2× the unrecognised tokens or broken citation IDs vs auto-downloaded sources |
 | R9 | Retrieval baseline dominates fine-tune on in-domain AND ties on out-of-domain → architectural claim (specialist value-add) weakens | Medium | Medium (reframes the value claim, doesn't kill it) | Ship the eval CSV honestly; reframe README from "fine-tune is the engine" to "hybrid serving with provenance — retrieval for known, fine-tune for novel" (current default framing already supports this). If retrieval wins everywhere, ship as retrieval-only and demote the QLoRA adapter to "experimental comparator" in the project narrative — MLflow runs + training script + adapter SHA still constitute a real technique deliverable. | M3 small-sweep loss curve plateaus near base-Qwen on validation; OR M4 eval shows retrieval >= fine-tune on out-of-domain slice |
 
@@ -209,12 +219,14 @@ End-to-end DoD for this development cycle:
 3. MLflow run history populated with adapter SHA + dataset hash linkage
 4. README updated with parser-bakeoff rationale and eval results
 5. Reproducibility: locked Python env · seeded train script · dataset hash referenced in `eval/results_v1.csv`
+6. **AWS account scoped at M2**: IAM user `d-accord-dev` exists · S3 bucket `daccord-dev-{account_id}` versioned in `ap-southeast-1` · AWS Budgets alarm fired (test alert) at $50/$100 thresholds · Bedrock model access ACTIVE for all 4 F9 ensemble models
+7. **M2 ensemble cost reconciliation**: `costs/daily.csv` rows for `bedrock_batch` and `gemini_paid` providers sum to <$5 per day per provider (USD cap held)
 
 **Phase 2 (when triggered)**:
-6. Adapter packaged in SageMaker-compatible S3 layout · adapter S3 URI documented
-7. Endpoint deploy + teardown scripts committed and tested · `Project=d-accord` tag spend remains <$100
-8. Endpoint live for capture session · recording + screenshots in repo · endpoint torn down
-9. IAM policy JSON committed; S3 versioning verified
+8. Adapter packaged in SageMaker-compatible S3 layout · adapter S3 URI documented
+9. Endpoint deploy + teardown scripts committed and tested · `Project=d-accord` tag spend remains <$100 across M2 + M5 combined
+10. Endpoint live for capture session · recording + screenshots in repo · endpoint torn down within 48 h of capture
+11. SageMaker-scoped IAM policy JSON committed (extends the M2 baseline policy with `sagemaker:*` on `Project=d-accord`-tagged resources); S3 versioning verified
 
 ---
 
