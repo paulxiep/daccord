@@ -7,6 +7,7 @@
 #   - audit     → envs/audit/   (tier 2C tokenizer audit)
 #   - bakeoff   → envs/bakeoff/ (tier 2D Marker vs Typhoon-OCR; GPU service)
 #   - baseline  → envs/baseline/(tier 3A Qwen2.5-7B 4-bit-NF4 baseline; GPU service)
+#   - ingest    → envs/ingest/  (tier 4 full-corpus PDF→markdown via Marker; GPU service)
 #   - consumer  → consumer/     (Streamlit side-by-side; lands at tier 12C)
 #
 # Volume strategy:
@@ -113,8 +114,53 @@ services:
       - .:/workspace
       - daccord-uv-cache:/root/.cache/uv
       - daccord-hf-cache:/root/.cache/huggingface
+      # Surya (the layout/OCR backend Marker uses) writes models to
+      # ~/.cache/datalab/models/, NOT to ~/.cache/huggingface/. Without this
+      # named volume the ~3 GB of surya weights download fresh every container
+      # run — at Docker Desktop network speeds (~200 KB/s sustained) that's
+      # a 4-hour cost per run. The volume is shared with `ingest` so tier-2D
+      # + tier-4 amortise the download.
+      - daccord-datalab-cache:/root/.cache/datalab
       - daccord-venv-bakeoff:/workspace/envs/bakeoff/.venv
     working_dir: /workspace/envs/bakeoff
+    tty: true
+    stdin_open: true
+
+  ingest:
+    # Tier 4 — full-corpus PDF→markdown via Marker (locked at 2D). Same
+    # CUDA image as bakeoff/baseline; Python 3.13 pin in envs/ingest/ is
+    # marker-pdf-driven (pillow<11 ceiling). Run from CLI:
+    #   docker compose run --rm ingest uv sync
+    #   docker compose run --rm ingest uv run python scripts/parse_corpus.py \
+    #     --subset toy --verbose
+    #   docker compose run --rm ingest uv run python scripts/parse_corpus.py \
+    #     --subset full --verbose
+    build:
+      context: .
+      dockerfile: Dockerfile.cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - .:/workspace
+      - daccord-uv-cache:/root/.cache/uv
+      - daccord-hf-cache:/root/.cache/huggingface
+      # Shared with bakeoff — surya layout/OCR weights live under
+      # ~/.cache/datalab/, downloaded once and reused across all Marker runs.
+      # Without this, the ~3 GB surya download repeats per container run.
+      - daccord-datalab-cache:/root/.cache/datalab
+      - daccord-venv-ingest:/workspace/envs/ingest/.venv
+    working_dir: /workspace/envs/ingest
+    # hf_transfer is a Rust-backed parallel-chunked HF downloader; the env var
+    # below activates it for any `huggingface_hub` call inside this service.
+    # Cut surya's ~3 GB first-run download from ~4 h (single-stream, observed
+    # ~200 KB/s) to minutes. Safe-no-op if hf_transfer isn't installed.
+    environment:
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
     tty: true
     stdin_open: true
 
@@ -153,9 +199,14 @@ services:
 volumes:
   daccord-uv-cache:
   daccord-hf-cache:
+  # Surya (Marker's layout/OCR backend) writes ~3 GB of weights here on first
+  # run. Shared between bakeoff (tier 2D) + ingest (tier 4) — one download
+  # serves both. Wipe via: docker volume rm d-accord_daccord-datalab-cache
+  daccord-datalab-cache:
   daccord-venv-root:
   daccord-venv-eval:
   daccord-venv-audit:
   daccord-venv-bakeoff:
   daccord-venv-baseline:
+  daccord-venv-ingest:
   daccord-venv-consumer:

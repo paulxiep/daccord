@@ -56,7 +56,10 @@ def get_git_commit(short: int = 12) -> str:
             check=True,
             timeout=5,
         )
-    except subprocess.SubprocessError, FileNotFoundError, OSError:
+    except Exception:
+        # SubprocessError + FileNotFoundError + OSError all subclass Exception;
+        # this codepath logs "unknown" rather than crashing the caller when
+        # git is unavailable (SageMaker container, no .git, etc).
         return "unknown"
     return result.stdout.strip() or "unknown"
 
