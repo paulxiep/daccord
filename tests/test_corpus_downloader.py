@@ -122,4 +122,4 @@ def test_hash_existing_returns_entry_for_present_file(tmp_path: Path) -> None:
 
 def test_make_client_sets_user_agent() -> None:
     with make_client(timeout_seconds=5.0) as c:
-        assert "d-accord-corpus" in c.headers["User-Agent"]
+        assert "daccord-corpus" in c.headers["User-Agent"]

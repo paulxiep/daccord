@@ -10,6 +10,14 @@ consecutive_days_for_alert = 2         # ...this many consecutive days fires the
 anthropic = 30.0
 openai = 20.0
 together = 15.0
+# Tier 6+ paid provider for the M2 cloud-batch ensemble (Bedrock-only F9-E
+# variant, region us-east-1): 4 seats on Bedrock — Llama 4 Scout + Llama 4
+# Maverick + Claude Haiku 4.5 + Amazon Nova 2 Lite. Mid-scope expected M2
+# spend ≈ $3.75, so $5/day is a 30% safety margin. Tier 14C (M5 teardown)
+# reuses the same cap. M2 batch runs in us-east-1 (only region with Llama 4
+# access); M5 SageMaker stays in ap-southeast-1 (low RTT to Thailand for
+# the live demo).
+bedrock_batch = 5.0
 
 [caps_requests_per_day]
 # Free-tier providers (RPD = requests-per-day). Verify current quotas at run time
@@ -52,3 +60,30 @@ output_per_mtok = 0.60
 [pricing.together."Qwen/Qwen2.5-72B-Instruct-Turbo"]
 input_per_mtok = 1.20
 output_per_mtok = 1.20
+
+# Bedrock batch pricing (50% off on-demand). Region: us-east-1 (verified
+# 2026-05-26). F9-E ensemble seats use US Geo CRIS for Llama 4 (`us.` prefix)
+# and the base model IDs for Anthropic + Nova 2 Lite (already region-resident).
+# Model IDs below are the BASE IDs as logged by Bedrock — the runtime client
+# adds `us.` prefix at invocation time for Llama 4. Cross-region inference
+# adds ~10% to base pricing; not modelled separately here since the impact
+# is small (+$0.04 on a $3.75 run).
+[pricing.bedrock_batch."meta.llama4-scout-17b-instruct-v1:0"]
+input_per_mtok = 0.085
+output_per_mtok = 0.34
+
+[pricing.bedrock_batch."meta.llama4-maverick-17b-instruct-v1:0"]
+input_per_mtok = 0.12
+output_per_mtok = 0.48
+
+[pricing.bedrock_batch."anthropic.claude-haiku-4-5-20251001-v1:0"]
+input_per_mtok = 0.50
+output_per_mtok = 2.50
+
+# Nova 2 Lite (released 2025-12-02) — reasoning model; extended thinking
+# MUST be disabled in the inference config to avoid `reasoningContent` blocks
+# in batch output (the ensemble JSON schema can't parse those). Per-seat
+# mid-scope batch cost ≈ $0.90 (1.5M in × $0.15 + 0.54M out × $1.25).
+[pricing.bedrock_batch."amazon.nova-2-lite-v1:0"]
+input_per_mtok = 0.15
+output_per_mtok = 1.25

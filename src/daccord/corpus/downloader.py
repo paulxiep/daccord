@@ -9,7 +9,7 @@ from daccord.corpus.manifest import ManifestEntry
 from daccord.corpus.sources import Source
 from daccord.validation import ValidatedModel, validated
 
-USER_AGENT = "d-accord-corpus/0.0.1 (regulatory corpus download; contact: paulxiep@outlook.com)"
+USER_AGENT = "daccord-corpus/0.0.1 (regulatory corpus download; contact: paulxiep@outlook.com)"
 RETRY_STATUSES = frozenset({500, 502, 503, 504, 522, 524})
 MAX_ATTEMPTS = 3
 BACKOFF_BASE_SECONDS = 1.5

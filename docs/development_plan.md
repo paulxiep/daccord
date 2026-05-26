@@ -7,10 +7,10 @@ D'accord ([README.md](../README.md)) is a private QLoRA fine-tune of Qwen3-8B fo
 ### Scope this cycle (Pillar B)
 
 - **No Caravan integration.** Deploy via boto3-direct to SageMaker.
-- **Pillar A (Caravan emitter)** deferred. **Pillar C (AgentCore-orchestrated compliance research agent on top of d-accord)** is a future phase, not in this scope but not foreclosed — d-accord's deployed endpoint is the tool Pillar C will consume.
-- RAG / embeddings / semantic search and multi-modal FM patterns are exercised in sibling projects; d-accord does not redo those.
+- **Pillar A (Caravan emitter)** deferred. **Pillar C (AgentCore-orchestrated compliance research agent on top of D'accord)** is a future phase, not in this scope but not foreclosed — D'accord's deployed endpoint is the tool Pillar C will consume.
+- RAG / embeddings / semantic search and multi-modal FM patterns are exercised in sibling projects; D'accord does not redo those.
 
-### Technical goals d-accord closes
+### Technical goals D'accord closes
 
 - **LoRA/QLoRA fine-tuning** of a 7B base on consumer GPU (RTX 5080, 16 GB VRAM)
 - **MLOps** — MLflow tracking, model registry, experiment artifacts
@@ -22,11 +22,11 @@ D'accord ([README.md](../README.md)) is a private QLoRA fine-tune of Qwen3-8B fo
 ### Out of scope (deliberate concessions)
 
 - Customer-facing thought leadership · FM evaluation as a separate artifact · Secure private-network AI (VPC/PrivateLink/KMS).
-- d-accord still produces an eval CSV with per-jurisdiction breakdown — surfaced as operational rigor, not as the headline deliverable.
+- D'accord still produces an eval CSV with per-jurisdiction breakdown — surfaced as operational rigor, not as the headline deliverable.
 
 ### Landscape context (for scoping awareness, not positioning)
 
-- **OneTrust DataGuidance** — 300+ jurisdiction regulatory research SaaS with AI Copilot (RAG-over-frontier). Adjacent, not competitor; d-accord is a methodology + model artifact, not a SaaS.
+- **OneTrust DataGuidance** — 300+ jurisdiction regulatory research SaaS with AI Copilot (RAG-over-frontier). Adjacent, not competitor; D'accord is a methodology + model artifact, not a SaaS.
 - **Harvey AI** — broad legal AI ($11B val); frontier-model approach; citation hallucination remains a known weakness on niche SEA regs.
 - **SaulLM-7B** — closest methodological cousin (7B legal specialist, pretrained on 19M docs). Different task; useful prior-art reference.
 
@@ -36,7 +36,7 @@ D'accord ([README.md](../README.md)) is a private QLoRA fine-tune of Qwen3-8B fo
 
 - **Phase 1 — Local validation + cloud-batch M2 ensemble (M0–M4)**: full data pipeline + QLoRA training on RTX 5080 + three-tier eval. M2 ensemble auto-labels via async Bedrock + Google AI Studio batch jobs (~$3.13 spend, overnight); AWS account is stood up at M2 (tier 6C, pulling 14A/14B forward from M5) so the SageMaker work at M5 is partial-warm. **All deliverables except the SageMaker endpoint close here.** Total Phase 1 paid-API spend: **~$3.25**.
 - **Phase 2 — SageMaker hosting (M5)**: deploy adapter to endpoint via boto3 in `ap-southeast-1`, smoke test, capture, tear down. Decoupled from Phase 1 timing; can be triggered when a concrete demo opportunity justifies the $50–100 SageMaker spend. AWS account already scoped at M2 → Phase 2 only needs teardown scripts + S3 model packaging + endpoint stand-up.
-- **Phase C — AgentCore agent (future, separate repo)**: consumes d-accord's deployed endpoint as a tool. Out of scope here.
+- **Phase C — AgentCore agent (future, separate repo)**: consumes D'accord's deployed endpoint as a tool. Out of scope here.
 
 ---
 
@@ -67,8 +67,8 @@ D'accord ([README.md](../README.md)) is a private QLoRA fine-tune of Qwen3-8B fo
 | **4** | Parse all PDFs to markdown (Marker, locked for both EN and TH) | sequential | Needs 1D complete + 3B parser choice. **Watch R8**: 3 sources (UK-GDPR, UK DPA 2018, FR Loi I+L) come from browser print-to-PDF (Légifrance/legislation.gov.uk expose no scraper-friendly consolidated PDF) — 5–60× larger than regulator-issued PDFs, layout may confuse Marker |
 | **5** | Citation registry extraction per framework | sequential | |
 |  | **[M1 gate]** | | corpus + registries frozen |
-| **6** | 6A ensemble prompt + JSON schema (citations constrained to registry from 5) · 6B tiering script · **6C AWS preliminary (tier 14A/B pulled forward from M5)**: IAM user `d-accord-dev` + scoped S3 bucket `s3://daccord-dev-{account_id}/` in **`ap-southeast-1`** + AWS Budgets alarm ($50/$100) + Bedrock model-access requests for the 4 chosen ensemble models · 6D Google AI Studio billing enable + `GEMINI_PAID_API_KEY` provisioning | parallel | 6A/6B are code; 6C/6D are account setup. All four can run in parallel on d7. |
-| **7** | 7A ensemble generation — **4-seat F9 ensemble via async batch APIs**: Llama 4 Scout (Bedrock batch) + Llama 4 Maverick (Bedrock batch) + Claude Haiku 4.5 (Bedrock batch) + Gemini 3.1 Flash (Google AI Studio batch). Submit 4 batch jobs at evening of d7, results back morning of d8 (typical 1–12 h, 24 h SLA). · 7B splits script · 7C hand-validate completed framework-pairs as they land | parallel | 7A is fire-and-forget overnight — no local dispatcher running for hours. F9 strong-mid models reduce expected MED/LOW hand-val rate to ~10% (vs ~25% on cheap free-tier ensemble), cutting 7C labor from ~25 h to ~10 h. |
+| **6** | 6A ensemble prompt + JSON schema (citations constrained to registry from 5) · 6B tiering script · **6C AWS preliminary (tier 14A/B pulled forward from M5)**: reuse existing `caravan-poc` admin profile (account `351090596944`); `scripts/aws_setup.sh` creates scoped S3 bucket `s3://daccord-dev-{account_id}/` in **`us-east-1`** (only region with Llama 4 access) + Bedrock-batch service role `DaccordBedrockBatchService`; existing $50/month budget catches `Project=daccord`-tagged spend; user submits Bedrock model-access form for the 4 F9-E models | parallel | 6A/6B are code; 6C is account setup. All three can run in parallel on d7. Google AI Studio is **not** used in F9-E (Bedrock-only ensemble; no Gemini seat). |
+| **7** | 7A ensemble generation — **4-seat F9-E Bedrock-only ensemble via async batch jobs in `us-east-1`**: Llama 4 Scout + Llama 4 Maverick + Claude Haiku 4.5 + Amazon Nova 2 Lite (extended thinking disabled). Submit 4 batch jobs at evening of d7, results back morning of d8 (typical 1–12 h, 24 h SLA). · 7B splits script · 7C hand-validate completed framework-pairs as they land | parallel | 7A is fire-and-forget overnight — no local dispatcher running for hours. F9-E strong-mid models reduce expected MED/LOW hand-val rate to ~10% (vs ~25% on cheap free-tier ensemble), cutting 7C labor from ~25 h to ~10 h. |
 | **8** | Tiering (HIGH/MED/LOW/SALVAGE) + complete hand-validation + HIGH-tier per-jurisdiction spot-check | sequential | Needs 7A complete + all 7C |
 | **9** | Gold freeze (≥500 pairs) + jurisdiction-disjoint train/val/test splits + dataset SHA | sequential | |
 |  | **[M2 gate]** | | gold + splits frozen with version hash; AWS account scoped + Bedrock access provisioned |
@@ -138,10 +138,12 @@ All ML substance happens here. AWS account stood up at M2 (tier 6C, pulling 14A/
 
 ### M2 — Gold Set Frozen (~d8)
 
-- **DoD**: ≥500 hand-validated gold pairs · ensemble outputs checkpointed · HIGH-tier stratified spot-check shows no jurisdiction <80% sample quality · jurisdiction-disjoint train/test split committed with dataset hash · **AWS account scoped + Bedrock model access provisioned for the 4 F9 ensemble members + Google AI Studio billing enabled** (tier 14A/14B pulled forward from M5)
+- **DoD**: ≥500 hand-validated gold pairs · ensemble outputs checkpointed · HIGH-tier stratified spot-check shows no jurisdiction <80% sample quality · jurisdiction-disjoint train/test split committed with dataset hash · **AWS account scoped + Bedrock model access provisioned in `us-east-1` for the 4 F9-E ensemble members** (tier 14A/14B pulled forward from M5)
 - **Artifact**: `data/gold/gold_v1.jsonl` + `data/splits/{train,val,test}.jsonl` + spot-check report + `data/ensemble/raw/*.jsonl` (4 model outputs × ~30 framework-pairs each)
-- **Ensemble**: F9 strong-mid auto-label-optimized — **Llama 4 Scout** (Bedrock, 2025-04) + **Llama 4 Maverick** (Bedrock, 2025-04) + **Claude Haiku 4.5** (Bedrock, 2025-10) + **Gemini 3.1 Flash** (Google AI Studio, 2026-01). All capability-balanced strong-mid tier; tier 8 HIGH=4/4 agreement logic preserved. ~$3.13 spend at mid scope (~30 framework-pairs, ~12 K total raw candidates, ~3 K per seat).
-- **Cut criterion**: gold <300 by d8 → drop Malaysia + Philippines (cheap completers); two-native-language story stays intact. Secondary cut: any single Bedrock model-access request still pending by d7 morning → fall back to a 3-seat Bedrock-only ensemble (drop Gemini, retier tier 8 to HIGH=3/3).
+- **Ensemble (F9-E, Bedrock-only, `us-east-1`)**: auto-label-optimized — **Llama 4 Scout** (2025-04) + **Llama 4 Maverick** (2025-04) + **Claude Haiku 4.5** (2025-10) + **Amazon Nova 2 Lite** (2025-12, extended thinking OFF for clean JSON output). Tier 8 HIGH=4/4 agreement preserved. **~$3.75 spend** at mid scope (~30 framework-pairs, ~12 K total raw candidates, ~3 K per seat).
+- **Region rationale**: M2 batch runs in `us-east-1` because Llama 4 Scout/Maverick are not reachable from `ap-southeast-1` (Geo CRIS is US-source only; no Global CRIS for Llama 4 as of 2026-05). Bedrock batch in us-east-1 from Thailand adds ~30 s total latency over the run (negligible at 24 h SLA). M5 SageMaker stays in `ap-southeast-1` (low RTT for the live demo).
+- **Cut criterion**: gold <300 by d8 → drop Malaysia + Philippines (cheap completers); two-native-language story stays intact. Secondary cut: any single Bedrock model-access request still pending by d7 morning → fall back to a 3-seat ensemble (drop the pending one, retier tier 8 to HIGH=3/3).
+- **M2 prep status (2026-05-26)**: tier 6A (ensemble prompt + registry loader), 6B (HIGH/MED/LOW/SALVAGE classifier + CLI), 6C (AWS resource setup scripts in `us-east-1`), cost-config (`bedrock_batch` provider with 4 F9-E model pricings) all **landed and tested green** (16 + 24 + smoke-OK). Google AI Studio dependency dropped — F9-E is Bedrock-only. Remaining for M2 prep: (a) user runs `bash scripts/aws_setup.sh` (defaults to us-east-1) to create the S3 bucket + Bedrock-batch service role, (b) submits the Anthropic Haiku 4.5 use-case form in the Bedrock console (auto-approved <5 min typical; Llama 4 + Nova 2 Lite usually instant-grant). Tier 7 (cloud-run pipeline) ships next session.
 
 ### M3 — Small-Sweep Validated (~d10)
 
@@ -184,12 +186,12 @@ Trigger when M4 has a publishable delta AND there's a concrete reason (demo, run
 
 - **Phase 1 spend** is **~$3.25** — M2 ensemble batch (~$3.13: F9 ensemble across Bedrock + Google AI Studio) + M4 eval judge (~$0.10: Bedrock Haiku 4.5 over 500-pair eval). Plus ~$5–10 LlamaParse fallback if Marker fails on a specific document. Free-tier providers (Groq, Cerebras, DeepSeek) are no longer in the critical path — the prior plan's free-tier RPD pacing was the source of the 3-day async wait at 7A. One row per day in `costs/daily.csv` committed to repo with provider-specific entries; F9 batch invocations log against `bedrock_batch` and `gemini_paid` provider keys with their pre-priced rates in [costs/config.toml](../costs/config.toml). Hard $5/day USD cap per provider enforces the ceiling.
 - **Phase 2 SageMaker discipline**: `ml.g5.xlarge` ≈ $1.40/hr in `ap-southeast-1`; **target <48 h total live**; stand up → smoke test (10 prompts) → capture → tear down (~2 h live). Re-stand-up on demand from `scripts/deploy_endpoint.py`; budget for ~5–10 min cold start for live demos. Cold start now also loads the MPNet embedder + FAISS index alongside the 7B adapter (~1–2 GB additional read; negligible time impact vs the adapter load).
-- **AWS account scope** (pulled forward from M5 to M2 prelim at tier 6C): IAM user `d-accord-dev`, never root; policies scoped to `s3:* on arn:aws:s3:::daccord-dev-{account_id}/*` (M2 artifacts) + `bedrock:InvokeModel*` + `bedrock:CreateModelInvocationJob*` on the 4 F9 models; `sagemaker:*` on resources tagged `Project=d-accord` added at M5. Region: **`ap-southeast-1`** (Singapore) for both Bedrock and SageMaker.
+- **AWS account scope** (pulled forward from M5 to M2 prelim at tier 6C): reuse the existing `caravan-poc` AdministratorAccess profile (no new IAM user — saves the policy-attachment dance). `scripts/aws_setup.sh` creates the scoped S3 bucket `daccord-dev-{account_id}` + the Bedrock-batch service role `DaccordBedrockBatchService` with a least-priv inline policy (s3:Get/Put/List on the daccord bucket only) and a trust policy locked to `bedrock.amazonaws.com` + this account's `aws:SourceAccount`. **Region split**: M2 Bedrock batch in **`us-east-1`** (Llama 4 access requirement); M5 SageMaker endpoint in **`ap-southeast-1`** (low RTT for the live demo from Thailand).
 - **S3 versioning** enabled on `daccord-dev-{account_id}` (trivial cost, prevents adapter clobber + protects M2 ensemble outputs from re-run overwrites).
-- **Teardown as committed code** before first SageMaker stand-up (`scripts/teardown_endpoint.py`, `scripts/teardown_all.py --nuke`). Bedrock batch jobs are on-demand (no persistent endpoint) so M2 needs no teardown beyond cost-tracker reconciliation.
+- **Teardown as committed code**. **M2 (tier 6C)**: `scripts/aws_teardown.sh` (bash) / `scripts/aws_teardown.ps1` (PowerShell) — destroys the daccord S3 bucket (including all versioned objects + delete markers) and the `DaccordBedrockBatchService` IAM role + inline policy. Bedrock batch jobs themselves are on-demand (no persistent endpoint), so the only M2 cleanup is bucket + role. Run after M4 if the M5 SageMaker push is deferred, OR keep the bucket if you want to retain `data/ensemble/raw/` for re-tiering. **M5 (tier 14C)**: `scripts/teardown_endpoint.py`, `scripts/teardown_all.py --nuke` for SageMaker endpoint + S3 model artifacts — committed before first stand-up.
 - **API spend resilience**: ensemble outputs checkpointed per `(framework_pair, model)` to `data/ensemble/raw/`; batch poll script (`scripts/run_ensemble.py --poll`) is idempotent and resumes if interrupted. Bedrock batch jobs run cloud-side and survive operator-side interrupts.
-- **Project tag** `Project=d-accord` on every AWS resource (S3 bucket, Bedrock batch jobs, SageMaker endpoint, IAM policies) for cost attribution.
-- **AWS Budgets alarm**: $50 warning + $100 hard threshold scoped to the `Project=d-accord` cost-allocation tag — established at tier 6C, applies across M2 and M5.
+- **Project tag** `Project=daccord` on every AWS resource (S3 bucket, Bedrock batch jobs, SageMaker endpoint, IAM policies) for cost attribution.
+- **AWS Budgets alarm**: $50 warning + $100 hard threshold scoped to the `Project=daccord` cost-allocation tag — established at tier 6C, applies across M2 and M5.
 
 ---
 
@@ -219,14 +221,14 @@ End-to-end DoD for this development cycle:
 3. MLflow run history populated with adapter SHA + dataset hash linkage
 4. README updated with parser-bakeoff rationale and eval results
 5. Reproducibility: locked Python env · seeded train script · dataset hash referenced in `eval/results_v1.csv`
-6. **AWS account scoped at M2**: IAM user `d-accord-dev` exists · S3 bucket `daccord-dev-{account_id}` versioned in `ap-southeast-1` · AWS Budgets alarm fired (test alert) at $50/$100 thresholds · Bedrock model access ACTIVE for all 4 F9 ensemble models
+6. **AWS account scoped at M2**: `caravan-poc` admin profile in use (no new IAM user); S3 bucket `daccord-dev-{account_id}` versioned in `ap-southeast-1` with `Project=daccord` tag; Bedrock-batch service role `DaccordBedrockBatchService` created; existing $50/month budget catches `Project=daccord` spend; Bedrock model access ACTIVE for all 4 F9 ensemble models (verified by `python scripts/check_aws_setup.py`)
 7. **M2 ensemble cost reconciliation**: `costs/daily.csv` rows for `bedrock_batch` and `gemini_paid` providers sum to <$5 per day per provider (USD cap held)
 
 **Phase 2 (when triggered)**:
 8. Adapter packaged in SageMaker-compatible S3 layout · adapter S3 URI documented
-9. Endpoint deploy + teardown scripts committed and tested · `Project=d-accord` tag spend remains <$100 across M2 + M5 combined
+9. Endpoint deploy + teardown scripts committed and tested · `Project=daccord` tag spend remains <$100 across M2 + M5 combined
 10. Endpoint live for capture session · recording + screenshots in repo · endpoint torn down within 48 h of capture
-11. SageMaker-scoped IAM policy JSON committed (extends the M2 baseline policy with `sagemaker:*` on `Project=d-accord`-tagged resources); S3 versioning verified
+11. SageMaker-scoped IAM permissions added to the `caravan-poc` profile (or via an inline scoped policy if least-priv is reintroduced at M5) covering `sagemaker:*` on `Project=daccord`-tagged resources; S3 versioning verified
 
 ---
 
@@ -248,6 +250,11 @@ Sections 2–4 describe sequencing at the tier-row granularity. This section zoo
 | 2D parser bake-off | ✓ Done — Marker locked; R1 resolved | See §9.2 |
 | 3A baselines on toy gold | ⚠ Partial (this MR; runs against partial-verified gold per 2A deferral) — `envs/baseline/` + `LocalHFClient` + `GroqJudge` shipped; `qwen` / `groq` / `qwen3` / `gemini` aliases all wired. `eval/baseline_toy.csv` has 80 rows (4 generators × 20 pairs). Base swapped mid-session from Qwen 2.5-7B to Qwen 3-8B (newer multilingual tokenizer; re-audit on Qwen3-8B passed for all 4 languages); judge bumped Llama 3.3-70B → Llama 4 Scout for stronger signal. | Plan in §9.3 |
 | 3B lock parser choice (README) | ⏳ In progress (this MR) — numeric outcome lands in README parser line | Plan in §9.3 |
+| 6A `build_ensemble_prompt()` | ✓ Done (2026-05-26) — registry-pinned ensemble prompt at [src/daccord/eval/prompts.py](../src/daccord/eval/prompts.py); `Registry` loader + `load_registry()` at [src/daccord/eval/registry.py](../src/daccord/eval/registry.py); 16 tests pass | M2 cloud-batch prep |
+| 6B `scripts/tier_ensemble.py` | ✓ Done (2026-05-26) — `EnsembleCandidate` + `ModelVote` + `TieredPair` shapes at [src/daccord/ensemble/schema.py](../src/daccord/ensemble/schema.py); HIGH/MED/LOW/SALVAGE classifier at [src/daccord/ensemble/tier.py](../src/daccord/ensemble/tier.py); deterministic CLI at [scripts/tier_ensemble.py](../scripts/tier_ensemble.py); 24 tests pass (incl. N=3 fallback) | M2 cloud-batch prep |
+| 6C AWS resource prep (CLI scripts, admin profile, **us-east-1**) | ✓ Done (2026-05-26) — shell setup at [scripts/aws_setup.sh](../scripts/aws_setup.sh) + PowerShell port at [scripts/aws_setup.ps1](../scripts/aws_setup.ps1) + **teardown pair** at [scripts/aws_teardown.sh](../scripts/aws_teardown.sh) / [.ps1](../scripts/aws_teardown.ps1) (destroys bucket + role; run after M4 if M5 is deferred) + boto3 verification at [scripts/check_aws_setup.py](../scripts/check_aws_setup.py). Shared constants (region, bucket pattern, role name, F9 model IDs, profile resolver) live in [src/daccord/aws/m2.py](../src/daccord/aws/m2.py) so tier 7A imports them directly. **Reuses existing `caravan-poc` admin profile** (account `351090596944`, $50/month budget). User runs `bash scripts/aws_setup.sh` → creates bucket `daccord-dev-351090596944` in `us-east-1` + Bedrock-batch service role `DaccordBedrockBatchService`. **Region**: us-east-1 (Llama 4 access requirement; ap-southeast-1 can't reach Llama 4 via any CRIS path as of 2026-05). M5 SageMaker stays ap-southeast-1 (low RTT for live demo). | Then user opens Bedrock console (`us-east-1`) → Model access → submits use-case form for `anthropic.claude-haiku-4-5-*` (Llama 4 Scout/Maverick + Nova 2 Lite usually auto-granted). Re-run `python scripts/check_aws_setup.py` until all checks pass. |
+| 6D ~~Google AI Studio billing enable~~ | **DROPPED (2026-05-26)** — F9-E ensemble is Bedrock-only (Llama 4 + Haiku 4.5 + Nova 2 Lite); no Gemini seat. `docs/google_ai_studio_setup.md` and `scripts/check_google_setup.py` deleted. Free-tier `google_gemini` provider stays in config for M0 baselines + M4 eval-judge use; unchanged. | — |
+| Cost-config — `bedrock_batch` only | ✓ Done (2026-05-26) — Provider Literal extended at [src/daccord/costs/config.py](../src/daccord/costs/config.py); pricing table + $5/day USD cap at [costs/config.toml](../costs/config.toml). `bedrock_batch` covers all 4 F9-E seats: Llama 4 Scout + Llama 4 Maverick + Claude Haiku 4.5 + Amazon Nova 2 Lite (us-east-1, batch tier). | Wired into preflight/record_call automatically (no per-call code change). |
 
 ### 9.1 — Tier 1 detail (what landed + 1C closure plan)
 
@@ -267,7 +274,7 @@ Sections 2–4 describe sequencing at the tier-row granularity. This section zoo
 
 **1B — MLflow plumbing.** Wired manually rather than via framework autolog (the latter belongs in the training script at tier 10A):
 
-- [src/daccord/tracking.py](../src/daccord/tracking.py) — `setup_mlflow()` resolves tracking URI (env var → `file:./mlruns`), sets experiment; `log_standard_params()` logs the reproducibility contract (`run_name`, `git_commit`, `seed`, `dataset_hash`, extras) and tags `project=d-accord`; `log_adapter_sha256()` for tier 10–13; `set_all_seeds()` seeds `random` + `numpy` + `torch` + `transformers` (lazy-imported).
+- [src/daccord/tracking.py](../src/daccord/tracking.py) — `setup_mlflow()` resolves tracking URI (env var → `file:./mlruns`), sets experiment; `log_standard_params()` logs the reproducibility contract (`run_name`, `git_commit`, `seed`, `dataset_hash`, extras) and tags `project=daccord`; `log_adapter_sha256()` for tier 10–13; `set_all_seeds()` seeds `random` + `numpy` + `torch` + `transformers` (lazy-imported).
 - Smoke test: [scripts/mlflow_smoke_test.py](../scripts/mlflow_smoke_test.py) exercises the plumbing end-to-end (URI resolution, run creation, param logging) and can be re-run anytime to validate the local MLflow store. Local backend at `mlruns/` (gitignored); Phase 2 swaps via `MLFLOW_TRACKING_URI` with no code change.
 - Reuse: [src/daccord/eval/runner.py](../src/daccord/eval/runner.py) calls `setup_mlflow` + `log_standard_params` per parent run, nests one child run per generator, and logs metrics via `mlflow.log_metric()`. Tier 10A will add `mlflow.<flavor>.autolog()` at the top of `training/train.py`; the manual contract from 1B continues alongside.
 
@@ -361,7 +368,7 @@ What's still needed before M0 can close (per the 2A acceptance criteria below):
   - `runner.py` — orchestrates generators + judge, emits CSV + MLflow runs.
   - `prompts.py`, `schema.py` — `PromptMessages`, `CitationCandidate`, `ModelResponse`.
 - CSV row contract (14 columns, stable from M0 → M4): `gold_id, model, source_jurisdiction, source_framework, target_jurisdiction, target_framework, source_language, target_language, predicted_citation_id, expected_citation_id, citation_match, judge_score, judge_bucket, judge_reasoning`.
-- MLflow shape: parent run (tags `project=d-accord`, `gate=M0`, `prompt_variant=unconstrained-m0`), one nested child per generator. Child metrics include `tier1_citation_match_overall`, per-jurisdiction (`tier1_citation_match__jur__<jur>`), per-language (`tier1_citation_match__lang__<lang>`), per-framework-pair (`tier1_citation_match__fwpair__<src>__<tgt>`), `tier2_judge_mean`, `tier2_judge_pct_above_0.7`, judge-bucket counts.
+- MLflow shape: parent run (tags `project=daccord`, `gate=M0`, `prompt_variant=unconstrained-m0`), one nested child per generator. Child metrics include `tier1_citation_match_overall`, per-jurisdiction (`tier1_citation_match__jur__<jur>`), per-language (`tier1_citation_match__lang__<lang>`), per-framework-pair (`tier1_citation_match__fwpair__<src>__<tgt>`), `tier2_judge_mean`, `tier2_judge_pct_above_0.7`, judge-bucket counts.
 - Tests: `envs/eval/tests/test_eval_{runner,clients,prompts,schema,scoring}.py` — 40+ assertions covering end-to-end mocked generation + judging, CSV contract stability, MLflow nesting, aggregation.
 - See also: [eval/README.md](../eval/README.md).
 

@@ -29,6 +29,11 @@ dependencies = [
     # Tier 2B (eval harness) provider SDKs — `groq`, `google-genai` — live in
     # envs/eval/ so the shared venv stays decoupled from per-provider version
     # churn (e.g. marker-pdf in envs/bakeoff/ wants google-genai<2).
+    # boto3 lands at root so tier 6C verification (scripts/check_aws_setup.py),
+    # tier 7A Bedrock batch client, tier 14D S3 packaging, and tier 15
+    # SageMaker stand-up all share one pin. Bedrock batch APIs landed in
+    # boto3 ~1.35.
+    "boto3>=1.35,<2",
 ]
 
 [dependency-groups]

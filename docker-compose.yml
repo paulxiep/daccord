@@ -16,7 +16,7 @@
 #   - .venv per env: named volume overlays the bind mount path. Keeps Linux
 #     binaries out of the Windows host filesystem and avoids Docker-Desktop
 #     bind-mount I/O cost on uv's hot path. Wipe via:
-#       docker volume rm d-accord_daccord-venv-eval
+#       docker volume rm daccord_daccord-venv-eval
 #   - uv wheel cache: shared named volume across all services. Pulling torch
 #     once benefits eval + bakeoff + future training.
 #   - HF model cache: shared named volume. MPNet (~500MB) + future Qwen2.5-7B
@@ -37,7 +37,22 @@ services:
       - daccord-uv-cache:/root/.cache/uv
       - daccord-hf-cache:/root/.cache/huggingface
       - daccord-venv-root:/workspace/.venv
+      # AWS credentials from the Windows host (read-only). Resolves the
+      # `~/.aws/credentials` lookup path for boto3 + aws CLI inside the
+      # container so `scripts/check_aws_setup.py` (tier 6C) and tier 7A
+      # Bedrock batch can use the existing profile without re-keying.
+      # NOTE: ${USERPROFILE} is set in Windows shells (cmd / PowerShell).
+      # Linux/Mac users: `export USERPROFILE=$HOME` before `docker compose`,
+      # or override this line via a `docker-compose.override.yml`.
+      - ${USERPROFILE}/.aws:/root/.aws:ro
     working_dir: /workspace
+    # AWS_PROFILE is NOT hard-coded here — the authoritative source is
+    # aws-account.yaml at the repo root (Python scripts parse it; bash + ps1
+    # setup scripts grep it). This `environment:` block just passes the
+    # host env var through if set, so `$env:AWS_PROFILE = "..."` overrides
+    # win. If unset, scripts fall back to aws-account.yaml's `profile:`.
+    environment:
+      AWS_PROFILE: ${AWS_PROFILE:-}
     # tty + stdin_open make `docker compose run --rm root bash` interactive.
     # `docker compose run --rm root uv sync` overrides this with the bash one-shot.
     tty: true
@@ -52,6 +67,9 @@ services:
       - daccord-uv-cache:/root/.cache/uv
       - daccord-hf-cache:/root/.cache/huggingface
       - daccord-venv-eval:/workspace/envs/eval/.venv
+      # AWS credentials (see root service comment) — needed at tier 7A for
+      # BedrockBatchClient and at M4 tier 13 for Bedrock-hosted eval judge.
+      - ${USERPROFILE}/.aws:/root/.aws:ro
     working_dir: /workspace/envs/eval
     # API keys for Groq + Gemini live in .env.local (gitignored on host).
     # env_file picks them up so live runs work; absent keys are tolerated for
@@ -59,6 +77,8 @@ services:
     env_file:
       - path: .env.local
         required: false
+    environment:
+      AWS_PROFILE: ${AWS_PROFILE:-caravan-poc}
     tty: true
     stdin_open: true
 
@@ -201,7 +221,7 @@ volumes:
   daccord-hf-cache:
   # Surya (Marker's layout/OCR backend) writes ~3 GB of weights here on first
   # run. Shared between bakeoff (tier 2D) + ingest (tier 4) — one download
-  # serves both. Wipe via: docker volume rm d-accord_daccord-datalab-cache
+  # serves both. Wipe via: docker volume rm daccord_daccord-datalab-cache
   daccord-datalab-cache:
   daccord-venv-root:
   daccord-venv-eval:

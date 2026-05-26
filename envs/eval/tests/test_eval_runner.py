@@ -279,7 +279,7 @@ class TestRunEval:
 
         parent = parents[0]
         # Parent tags
-        assert parent.data.tags["project"] == "d-accord"
+        assert parent.data.tags["project"] == "daccord"
         assert parent.data.tags["gate"] == "M0"
         assert parent.data.tags["prompt_variant"] == "unconstrained-m0"
         # Parent params

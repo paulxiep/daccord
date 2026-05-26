@@ -23,7 +23,7 @@ Resolution order in [setup_mlflow](../src/daccord/tracking.py): explicit arg →
 | `adapter_sha256` | SHA256 of saved adapter | `log_adapter_sha256` at end of training |
 | HF hyperparams / metrics | `TrainingArguments` + `Trainer` | HF's MLflow callback via `report_to=["mlflow"]` |
 
-Tag `project=d-accord` is set on every run, mirroring the AWS resource-tag convention from [development_plan.md §6](development_plan.md).
+Tag `project=daccord` is set on every run, mirroring the AWS resource-tag convention from [development_plan.md §6](development_plan.md).
 
 ## Tier-10A wiring snippet
 
