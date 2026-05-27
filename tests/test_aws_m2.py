@@ -136,3 +136,50 @@ class TestResolveProfile:
         os.environ.pop("AWS_PROFILE", None)
         with mock.patch.object(m2, "_repo_root", return_value=tmp_path):
             assert m2.resolve_profile(None) == "caravan-poc"
+
+
+class TestModelSlug:
+    """Pin filename-safe slugs for the four F9 Bedrock model IDs.
+
+    The slug appears in `data/ensemble/raw/{pair}__{slug}.jsonl` and as part
+    of S3 keys; changing the slug for a model after a run lands creates
+    orphaned artifacts. Lock the mapping.
+    """
+
+    def test_llama_4_scout_slug(self) -> None:
+        from daccord.aws.batch import model_slug
+
+        assert (
+            model_slug("meta.llama4-scout-17b-instruct-v1:0")
+            == "meta-llama4-scout-17b-instruct-v1-0"
+        )
+
+    def test_llama_4_maverick_slug(self) -> None:
+        from daccord.aws.batch import model_slug
+
+        assert (
+            model_slug("meta.llama4-maverick-17b-instruct-v1:0")
+            == "meta-llama4-maverick-17b-instruct-v1-0"
+        )
+
+    def test_claude_haiku_45_slug(self) -> None:
+        from daccord.aws.batch import model_slug
+
+        assert (
+            model_slug("anthropic.claude-haiku-4-5-20251001-v1:0")
+            == "anthropic-claude-haiku-4-5-20251001-v1-0"
+        )
+
+    def test_nova_2_lite_slug(self) -> None:
+        from daccord.aws.batch import model_slug
+
+        assert model_slug("amazon.nova-2-lite-v1:0") == "amazon-nova-2-lite-v1-0"
+
+    def test_slug_is_windows_filename_safe(self) -> None:
+        # No `:` and no `.` survive — both break on Windows or in some S3 contexts.
+        from daccord.aws.batch import model_slug
+
+        for model in m2.F9_BEDROCK_MODELS:
+            slug = model_slug(model)
+            assert ":" not in slug
+            assert "." not in slug

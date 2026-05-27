@@ -13,6 +13,6 @@ Consumed downstream by:
   - tier 12C HybridRouter: provenance tagging at serve time
 """
 
-from daccord.registry.schema import FrameworkRegistry, RegistryManifestEntry
+from daccord.registry.schema import FrameworkClauses, FrameworkRegistry, RegistryManifestEntry
 
-__all__ = ["FrameworkRegistry", "RegistryManifestEntry"]
+__all__ = ["FrameworkClauses", "FrameworkRegistry", "RegistryManifestEntry"]
