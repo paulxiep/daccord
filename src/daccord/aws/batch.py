@@ -40,28 +40,30 @@ from typing import Any
 
 from daccord.aws import m2
 from daccord.ensemble import EnsembleCandidate
-from daccord.validation import ValidatedModel, validated
+from daccord.ensemble.prompt import BatchPrompt, model_slug
+from daccord.validation import validated
 
 log = logging.getLogger("daccord.aws.batch")
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Filename safety — full Bedrock model IDs contain `:` and `.` which are
-# either invalid on Windows or noisy in S3 keys. `model_slug()` produces a
-# stable filename-safe form for `data/ensemble/raw/{pair}__{slug}.jsonl`.
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-@validated
-def model_slug(model_id: str) -> str:
-    """Map a full Bedrock model ID to a Windows-safe, S3-clean slug.
-
-    `meta.llama4-scout-17b-instruct-v1:0` → `meta-llama4-scout-17b-instruct-v1-0`.
-    Substitutes `:` and `.` with `-`; collapses consecutive dashes.
-    """
-    s = re.sub(r"[:.]", "-", model_id)
-    s = re.sub(r"-+", "-", s)
-    return s.strip("-")
+# `BatchPrompt` and `model_slug` are re-exported from `daccord.ensemble.prompt`
+# so existing call sites (tests + scripts) keep importing from this module
+# without modification. New code should prefer the new location.
+__all__ = [
+    "BatchPrompt",
+    "model_slug",
+    "build_modelInput",
+    "build_batch_jsonl",
+    "s3_prefix_for",
+    "submit_job",
+    "get_job_status",
+    "parse_model_output",
+    "download_and_parse_outputs",
+    "invoke_sync",
+    "candidate_from_invoke_response",
+    "write_candidates_jsonl",
+    "ANTHROPIC_VERSION",
+    "NOVA_SCHEMA_VERSION",
+]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -139,28 +141,6 @@ def build_modelInput(model: str, system: str, user: str, max_tokens: int) -> dic
 # ─────────────────────────────────────────────────────────────────────────────
 # Per-(pair, model) prompt staging — input JSONL assembly.
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-class BatchPrompt(ValidatedModel):
-    """One source-clause prompt to be sent to one Bedrock model in a batch.
-
-    `record_id` is the JSONL `recordId` field — must be unique within a
-    single batch (we use `source_id` directly, which is unique per pair).
-    The `EnsembleCandidate` fields are kept here so `parse_model_output`
-    can stitch source-side context back into the output row.
-    """
-
-    record_id: str
-    source_id: str
-    source_jurisdiction: str
-    source_framework: str
-    source_citation_id: str
-    source_mechanism: str
-    target_jurisdiction: str
-    target_framework: str
-    system: str
-    user: str
-    max_tokens: int
 
 
 @validated

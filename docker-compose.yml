@@ -53,6 +53,15 @@ services:
     # win. If unset, scripts fall back to aws-account.yaml's `profile:`.
     environment:
       AWS_PROFILE: ${AWS_PROFILE:-}
+    # Tier-7A Path 2 provider keys (ANTHROPIC_API_KEY / OPENAI_API_KEY /
+    # GOOGLE_API_KEY / TOGETHER_API_KEY) live in `.env` on the host
+    # (gitignored). env_file picks them up at run time; absent values are
+    # tolerated for dry-runs + the mocked pytest suite.
+    env_file:
+      - path: .env
+        required: false
+      - path: .env.local
+        required: false
     # tty + stdin_open make `docker compose run --rm root bash` interactive.
     # `docker compose run --rm root uv sync` overrides this with the bash one-shot.
     tty: true

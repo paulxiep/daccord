@@ -828,6 +828,169 @@ def cmd_poll(args: argparse.Namespace) -> int:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Path-2 subcommand — `run-paid`: paid direct API ensemble (Anthropic +
+# OpenAI + Gemini + Together). Reuses build_prompts_for_pair /
+# build_smoke_prompts from the Bedrock paths so prompt construction is
+# identical across all strategies. See docs/7a_path.md §"Path 2".
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@validated
+def parse_shard(shard_str: str | None) -> tuple[int, int] | None:
+    """Parse `--shard k/N` into `(k, N)`. Returns None for unset.
+
+    Raises `SystemExit` on malformed input so the CLI dies with a clear
+    message before any prompts are built. `0 <= k < N` required.
+    """
+    if shard_str is None:
+        return None
+    try:
+        k_str, n_str = shard_str.split("/", 1)
+        k, n = int(k_str), int(n_str)
+    except (ValueError, AttributeError) as exc:
+        raise SystemExit(
+            f"--shard must be 'k/N' (e.g. '0/2', '1/2'); got: {shard_str!r}"
+        ) from exc
+    if n <= 0 or k < 0 or k >= n:
+        raise SystemExit(f"--shard k/N requires 0 <= k < N (got {k}/{n})")
+    return (k, n)
+
+
+def cmd_run_paid(args: argparse.Namespace) -> int:
+    """Path-2 entry: PaidAPIStrategy across the 4-seat 2025+ ensemble.
+
+    Per-call JSONL append + resume-by-source_id contract from
+    `daccord.ensemble.strategy` means crashes lose at most one in-flight
+    call. Re-invoking the same command picks up exactly where the prior
+    run left off.
+
+    `--shard k/N` enables data-parallel runs: shard k processes pairs[k::N]
+    only. Run N shards in parallel (separate terminals / containers) to
+    multiply throughput. Per-provider RPM caps are the limiting factor:
+    Anthropic Tier 1 50 RPM × ~3.3s/call = 18 RPM sequential, so safe N=2
+    (36 RPM total) or borderline N=3 (54 RPM with 429s auto-retried via
+    --retry-errors). Other seats have much higher headroom.
+    """
+    from daccord.ensemble.strategies.paid_api import PaidAPIStrategy
+
+    registry_dir = args.registry_dir
+    clauses_dir = args.clauses_dir
+    raw_dir = args.raw_dir
+    raw_dir.mkdir(parents=True, exist_ok=True)
+
+    pairs = _resolve_pair_set(args, registry_dir)
+    shard = parse_shard(args.shard)
+    if shard is not None:
+        k, n = shard
+        total = len(pairs)
+        pairs = pairs[k::n]
+        log.info(
+            "[run-paid] shard %d/%d: processing %d of %d total pairs",
+            k,
+            n,
+            len(pairs),
+            total,
+        )
+
+    # Build prompts per pair (same path as Bedrock).
+    prompts_by_pair: dict[str, list[awsbatch.BatchPrompt]] = {}
+    for framework_pair in pairs:
+        if args.smoke:
+            prompts = build_smoke_prompts(
+                toy_gold_path=args.toy_gold,
+                registry_dir=registry_dir,
+                max_tokens=args.max_tokens,
+            )
+        else:
+            prompts = build_prompts_for_pair(
+                framework_pair=framework_pair,
+                registry_dir=registry_dir,
+                clauses_dir=clauses_dir,
+                max_tokens=args.max_tokens,
+                max_clauses=args.max_clauses_per_pair,
+            )
+        if prompts:
+            prompts_by_pair[framework_pair] = prompts
+
+    if not prompts_by_pair:
+        log.warning("[run-paid] no prompts to dispatch")
+        return 0
+
+    # Dry-run path skips strategy construction — the 4 ModelClient
+    # __init__s assert their API keys, which a dry-run shouldn't require.
+    # We just compute the workload size against the default 4 seats.
+    if args.dry_run:
+        for framework_pair, prompts in prompts_by_pair.items():
+            log.info(
+                "[run-paid][dry-run] %s: %d prompts × 4 seats = %d invocations",
+                framework_pair,
+                len(prompts),
+                len(prompts) * 4,
+            )
+        return 0
+
+    # Strategy construction — uses the default 4-seat lineup unless the
+    # operator overrode env vars. Each client lazy-imports its SDK so we
+    # only crash on missing API keys when an actual call is attempted.
+    try:
+        strategy = PaidAPIStrategy()
+    except Exception as exc:
+        log.error("[run-paid] strategy construction failed: %s", exc)
+        log.error(
+            "[run-paid] hint: set ANTHROPIC_API_KEY / OPENAI_API_KEY / "
+            "TOGETHER_API_KEY / GOOGLE_API_KEY"
+        )
+        return 3
+
+    log.info(
+        "[run-paid] %d pair(s) × %d seat(s): %s",
+        len(prompts_by_pair),
+        len(strategy.models),
+        ", ".join(strategy.models),
+    )
+
+    total_processed = 0
+    total_errors = 0
+    total_resumed = 0
+    for framework_pair, prompts in prompts_by_pair.items():
+        log.info(
+            "[run-paid] %s: dispatching %d prompts across %d seats%s",
+            framework_pair,
+            len(prompts),
+            len(strategy.models),
+            " (retrying parse_errors)" if args.retry_errors else "",
+        )
+        results = strategy.run_pair(
+            framework_pair,
+            prompts,
+            raw_dir,
+            smoke=args.smoke,
+            retry_errors=args.retry_errors,
+        )
+        for model, rr in results.items():
+            log.info(
+                "[run-paid]   %s: processed=%d ok=%d errors=%d resumed=%d (%.1fs)",
+                model,
+                rr.total_processed,
+                rr.parse_ok,
+                rr.parse_errors,
+                rr.resumed_from_disk,
+                rr.seconds_elapsed,
+            )
+            total_processed += rr.total_processed
+            total_errors += rr.parse_errors
+            total_resumed += rr.resumed_from_disk
+
+    log.info(
+        "[run-paid] done: processed=%d errors=%d resumed=%d",
+        total_processed,
+        total_errors,
+        total_resumed,
+    )
+    return 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Status subcommand.
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -942,6 +1105,58 @@ def main(argv: list[str] | None = None) -> int:
         help="Build prompts + preflight but don't actually invoke models.",
     )
     p_sync.set_defaults(func=cmd_run_sync)
+
+    p_paid = subparsers.add_parser(
+        "run-paid",
+        help="Path 2 — paid direct API ensemble (Anthropic Haiku 4.5 + "
+        "GPT-5-mini + Gemini 3.1 Flash Lite + Together Llama 4 Maverick). "
+        "Per-call resumable; see docs/7a_path.md.",
+    )
+    _add_common_args(p_paid)
+    p_paid.add_argument("--registry-dir", type=Path, default=DEFAULT_REGISTRY_DIR)
+    p_paid.add_argument("--clauses-dir", type=Path, default=DEFAULT_CLAUSES_DIR)
+    p_paid.add_argument("--toy-gold", type=Path, default=DEFAULT_TOY_GOLD)
+    p_paid.add_argument("--raw-dir", type=Path, default=DEFAULT_RAW_DIR)
+    p_paid.add_argument(
+        "--framework-pair",
+        type=str,
+        default=None,
+        help="Restrict to one pair (e.g. gdpr__pdpa_sg).",
+    )
+    p_paid.add_argument(
+        "--max-clauses-per-pair",
+        type=int,
+        default=None,
+        help="Cap source clauses per pair (cost-aware staging).",
+    )
+    p_paid.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
+    p_paid.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build prompts but don't actually invoke models.",
+    )
+    p_paid.add_argument(
+        "--retry-errors",
+        action="store_true",
+        help=(
+            "Scrub parse_error rows from each seat's output JSONL before "
+            "resume so previously-failed (seat, source_id) pairs get "
+            "re-called. Successful rows are untouched — no work duplication."
+        ),
+    )
+    p_paid.add_argument(
+        "--shard",
+        type=str,
+        default=None,
+        metavar="k/N",
+        help=(
+            "Data-parallel run: this shard processes pairs[k::N] (sorted, "
+            "stable). Launch N shards in parallel terminals to ~N-x throughput. "
+            "Safe N depends on Anthropic Tier-1 50 RPM ceiling: N=2 is safe, "
+            "N=3 expects some 429s (recover via --retry-errors)."
+        ),
+    )
+    p_paid.set_defaults(func=cmd_run_paid)
 
     args = p.parse_args(argv)
     logging.basicConfig(

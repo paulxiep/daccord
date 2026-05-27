@@ -34,6 +34,14 @@ dependencies = [
     # SageMaker stand-up all share one pin. Bedrock batch APIs landed in
     # boto3 ~1.35.
     "boto3>=1.35,<2",
+    # Tier-7A Path 2 paid-API ensemble (scripts/run_ensemble.py --strategy
+    # local-api-paid). Provider SDKs live at root so the script's runs from
+    # the `root` service without an env switch. Mirrored at envs/eval/ only
+    # for Groq + Gemini (already pinned there for the tier-2B eval harness).
+    "anthropic>=0.40,<1",
+    "openai>=1.55,<2",
+    "groq>=1.2,<2",
+    "google-genai>=2.6,<3",
 ]
 
 [dependency-groups]
