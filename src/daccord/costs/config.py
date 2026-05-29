@@ -17,6 +17,11 @@ Provider = Literal[
     "google_gemini",
     "cerebras",
     "deepseek",
+    # Tier 6+ paid provider used by the M2 cloud-batch ensemble (F9-C variant,
+    # Bedrock-only): `bedrock_batch` covers all 4 seats — Llama 4 Scout +
+    # Llama 4 Maverick + Claude Haiku 4.5 + Amazon Nova Pro. 50% discount vs
+    # sync; per-model pricing in costs/config.toml; $5/day USD cap.
+    "bedrock_batch",
     # Local-only providers — never go through preflight/record_call, so they
     # need no cap entry in costs/config.toml. Added so ModelClient adapters
     # for local-inference baselines (retrieval index, LocalHFClient for
@@ -33,6 +38,7 @@ PROVIDERS: tuple[Provider, ...] = (
     "google_gemini",
     "cerebras",
     "deepseek",
+    "bedrock_batch",
     "retrieval",
     "local_hf",
 )

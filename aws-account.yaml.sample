@@ -1,0 +1,32 @@
+# Sample AWS account configuration.
+# Copy this file to `aws-account.yaml` (already gitignored — see .gitignore below)
+# and fill in your own AWS account values.
+#
+# Used by:
+#   - scripts/check_aws_setup.py   (Python; reads `profile`)
+#   - scripts/aws_setup.sh / .ps1  (bash + PowerShell; grep `profile:` line)
+#   - scripts/aws_teardown.sh/.ps1 (same)
+#   - docker-compose.yml           (mounts ~/.aws read-only; AWS_PROFILE
+#                                   passed through from host env)
+#
+# Region note: this file's `region:` is the default for non-d-accord work
+# (e.g. Daccord PoC). For d-accord:
+#   - M2 Bedrock batch runs in us-east-1 (hard-coded in setup scripts —
+#     only region with Llama 4 access as of 2026-05).
+#   - M5 SageMaker endpoint runs in ap-southeast-1 (low RTT for live demo).
+# So the per-stage scripts override this file's `region:` deliberately.
+#
+# No secrets in here — credentials live in ~/.aws/credentials.
+
+profile: daccord-poc
+
+# Your 12-digit AWS account ID. Get it with:
+#   aws sts get-caller-identity --query Account --output text --profile <your-profile>
+account_id: "000000000000"
+
+region: ap-southeast-1
+
+# Optional: budget reference (matches AWS Budgets console).
+budget:
+  monthly_cap_usd: 50
+  alarm_email: "you@example.com"

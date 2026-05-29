@@ -7,10 +7,10 @@ D'accord ([README.md](../README.md)) is a private QLoRA fine-tune of Qwen3-8B fo
 ### Scope this cycle (Pillar B)
 
 - **No Caravan integration.** Deploy via boto3-direct to SageMaker.
-- **Pillar A (Caravan emitter)** deferred. **Pillar C (AgentCore-orchestrated compliance research agent on top of d-accord)** is a future phase, not in this scope but not foreclosed — d-accord's deployed endpoint is the tool Pillar C will consume.
-- RAG / embeddings / semantic search and multi-modal FM patterns are exercised in sibling projects; d-accord does not redo those.
+- **Pillar A (Caravan emitter)** deferred. **Pillar C (AgentCore-orchestrated compliance research agent on top of D'accord)** is a future phase, not in this scope but not foreclosed — D'accord's deployed endpoint is the tool Pillar C will consume.
+- RAG / embeddings / semantic search and multi-modal FM patterns are exercised in sibling projects; D'accord does not redo those.
 
-### Technical goals d-accord closes
+### Technical goals D'accord closes
 
 - **LoRA/QLoRA fine-tuning** of a 7B base on consumer GPU (RTX 5080, 16 GB VRAM)
 - **MLOps** — MLflow tracking, model registry, experiment artifacts
@@ -22,21 +22,21 @@ D'accord ([README.md](../README.md)) is a private QLoRA fine-tune of Qwen3-8B fo
 ### Out of scope (deliberate concessions)
 
 - Customer-facing thought leadership · FM evaluation as a separate artifact · Secure private-network AI (VPC/PrivateLink/KMS).
-- d-accord still produces an eval CSV with per-jurisdiction breakdown — surfaced as operational rigor, not as the headline deliverable.
+- D'accord still produces an eval CSV with per-jurisdiction breakdown — surfaced as operational rigor, not as the headline deliverable.
 
 ### Landscape context (for scoping awareness, not positioning)
 
-- **OneTrust DataGuidance** — 300+ jurisdiction regulatory research SaaS with AI Copilot (RAG-over-frontier). Adjacent, not competitor; d-accord is a methodology + model artifact, not a SaaS.
+- **OneTrust DataGuidance** — 300+ jurisdiction regulatory research SaaS with AI Copilot (RAG-over-frontier). Adjacent, not competitor; D'accord is a methodology + model artifact, not a SaaS.
 - **Harvey AI** — broad legal AI ($11B val); frontier-model approach; citation hallucination remains a known weakness on niche SEA regs.
 - **SaulLM-7B** — closest methodological cousin (7B legal specialist, pretrained on 19M docs). Different task; useful prior-art reference.
 
-**Effort baseline**: ~3 wk (~0.5–0.7 EM). AWS cost ceiling **$50–100**.
+**Effort baseline**: ~2 wk (~0.4–0.6 EM) under the Bedrock-batch M2 re-plan (~$3.25 Phase 1 + $50–100 Phase 2 SageMaker). Original plan was ~3 wk under the free-tier-only assumption; the ~1-week compression comes from (a) F9 strong-mid auto-label ensemble cutting hand-validation labor from ~25 h to ~10 h, (b) overnight batch jobs removing the local-dispatcher constraint, and (c) AWS account pulled forward to M2 so Phase 2 cuts to ~2 days when triggered.
 
 ### Phased execution
 
-- **Phase 1 — Local validation (M0–M4)**: full data pipeline + QLoRA training on RTX 5080 + three-tier eval. **All deliverables except the SageMaker endpoint close here.** No AWS-runtime dependency, no AWS spend risk.
-- **Phase 2 — SageMaker hosting (M5)**: deploy adapter to endpoint via boto3, smoke test, capture, tear down. Decoupled from Phase 1; can be triggered when a concrete demo opportunity justifies the $50–100 spend.
-- **Phase C — AgentCore agent (future, separate repo)**: consumes d-accord's deployed endpoint as a tool. Out of scope here.
+- **Phase 1 — Local validation + cloud-batch M2 ensemble (M0–M4)**: full data pipeline + QLoRA training on RTX 5080 + three-tier eval. M2 ensemble auto-labels via async Bedrock + Google AI Studio batch jobs (~$3.13 spend, overnight); AWS account is stood up at M2 (tier 6C, pulling 14A/14B forward from M5) so the SageMaker work at M5 is partial-warm. **All deliverables except the SageMaker endpoint close here.** Total Phase 1 paid-API spend: **~$3.25**.
+- **Phase 2 — SageMaker hosting (M5)**: deploy adapter to endpoint via boto3 in `ap-southeast-1`, smoke test, capture, tear down. Decoupled from Phase 1 timing; can be triggered when a concrete demo opportunity justifies the $50–100 SageMaker spend. AWS account already scoped at M2 → Phase 2 only needs teardown scripts + S3 model packaging + endpoint stand-up.
+- **Phase C — AgentCore agent (future, separate repo)**: consumes D'accord's deployed endpoint as a tool. Out of scope here.
 
 ---
 
@@ -56,7 +56,7 @@ D'accord ([README.md](../README.md)) is a private QLoRA fine-tune of Qwen3-8B fo
 
 **Notation**: tasks are numbered by tier. **Numbers are ordinal — tier *N+1* cannot start until tier *N* closes.** **Letters within a tier are parallel — 1A, 1B, 1C run concurrently.** Gates `[M*]` mark milestone checkpoints; see §4 for DoD and cut criteria.
 
-### Phase 1 — Local validation
+### Phase 1 — Local validation + cloud-batch M2 ensemble
 
 | Tier | Tasks | Type | Notes |
 |---|---|---|---|
@@ -67,24 +67,26 @@ D'accord ([README.md](../README.md)) is a private QLoRA fine-tune of Qwen3-8B fo
 | **4** | Parse all PDFs to markdown (Marker, locked for both EN and TH) | sequential | Needs 1D complete + 3B parser choice. **Watch R8**: 3 sources (UK-GDPR, UK DPA 2018, FR Loi I+L) come from browser print-to-PDF (Légifrance/legislation.gov.uk expose no scraper-friendly consolidated PDF) — 5–60× larger than regulator-issued PDFs, layout may confuse Marker |
 | **5** | Citation registry extraction per framework | sequential | |
 |  | **[M1 gate]** | | corpus + registries frozen |
-| **6** | 6A ensemble prompt + JSON schema (citations constrained to registry from 5) · 6B tiering script | parallel | |
-| **7** | 7A ensemble generation — 4-model OSS via free-tier APIs (Llama 4 Scout/Groq + Qwen 3-32B/Groq or Cerebras + Gemini 3.1 Flash Lite/Google AI Studio + DeepSeek V3) (~3d **async**) · 7B splits script · 7C hand-validate completed framework-pairs as they land | parallel | 7A async pacing now driven by free-tier RPD limits, not API spend; 7B/7C fill the wait |
+| **6** | 6A ensemble prompt + JSON schema (citations constrained to registry from 5) · 6B tiering script · **6C AWS preliminary (tier 14A/B pulled forward from M5)**: reuse existing `caravan-poc` admin profile (account `351090596944`); `scripts/aws_setup.sh` creates scoped S3 bucket `s3://daccord-dev-{account_id}/` in **`us-east-1`** (only region with Llama 4 access) + Bedrock-batch service role `DaccordBedrockBatchService`; existing $50/month budget catches `Project=daccord`-tagged spend; user submits Bedrock model-access form for the 4 F9-E models | parallel | 6A/6B are code; 6C is account setup. All three can run in parallel on d7. Google AI Studio is **not** used in F9-E (Bedrock-only ensemble; no Gemini seat). |
+| **7** | 7A ensemble generation — **4-seat F9-E Bedrock-only ensemble via async batch jobs in `us-east-1`**: Llama 4 Scout + Llama 4 Maverick + Claude Haiku 4.5 + Amazon Nova 2 Lite (extended thinking disabled). Submit 4 batch jobs at evening of d7, results back morning of d8 (typical 1–12 h, 24 h SLA). · 7B splits script · 7C hand-validate completed framework-pairs as they land | parallel | 7A is fire-and-forget overnight — no local dispatcher running for hours. F9-E strong-mid models reduce expected MED/LOW hand-val rate to ~10% (vs ~25% on cheap free-tier ensemble), cutting 7C labor from ~25 h to ~10 h. |
 | **8** | Tiering (HIGH/MED/LOW/SALVAGE) + complete hand-validation + HIGH-tier per-jurisdiction spot-check | sequential | Needs 7A complete + all 7C |
 | **9** | Gold freeze (≥500 pairs) + jurisdiction-disjoint train/val/test splits + dataset SHA | sequential | |
-|  | **[M2 gate]** | | gold + splits frozen with version hash |
-| **10** | 10A `training/train.py` (HF `transformers` + `peft` + `bitsandbytes` + `trl`) · 10B small-sweep config | parallel | 10A can actually start during tier 7 idle time |
+|  | **[M2 gate]** | | gold + splits frozen with version hash; AWS account scoped + Bedrock access provisioned |
+| **10** | 10A `training/train.py` (HF `transformers` + `peft` + `bitsandbytes` + `trl`) · 10B small-sweep config | parallel | 10A can start during the 7A overnight window |
 | **11** | Small-sweep — 200 pairs × 1 epoch | sequential | Validates MLflow plumbing, adapter save/reload, OOM headroom |
 |  | **[M3 gate]** | | adapter saves/reloads · MLflow logs run + SHA · no OOM at target seq_len (else swap to Unsloth) |
 | **12** | 12A full QLoRA train + small hyperparam sweep (~overnight **async**) · 12B three-tier eval script + retrieval baseline (MPNet+FAISS over train-split source clauses) + `build_retrieval_index.py` · 12C draft Phase 2 deploy/teardown scripts + hybrid inference handler (`publish/sagemaker_handler.py`) + Streamlit side-by-side app (`consumer/app.py`) | parallel | 12A async; 12B/12C fill the wait. 12C is now substantive (~2–3 d) — don't rush. |
-| **13** | Three-tier eval across 4 comparators (fine-tune + base Qwen + Llama 70B + retrieval) run twice with `--slice-tag in-domain` and `--slice-tag out-of-domain`; per-jurisdiction + per-language breakdown aggregated from CSV rows | sequential | Slice tag goes to MLflow run metadata, not per-row (CSV contract stable per [eval/README.md](../eval/README.md)). |
+| **13** | Three-tier eval across 4 comparators (fine-tune + base Qwen + Llama 70B + retrieval) run twice with `--slice-tag in-domain` and `--slice-tag out-of-domain`; per-jurisdiction + per-language breakdown aggregated from CSV rows. Eval-judge calls route through **Bedrock Haiku 4.5** (account already warm from M2) instead of free-tier Gemini — eliminates the tier 13 RPD bottleneck. | sequential | Slice tag goes to MLflow run metadata, not per-row (CSV contract stable per [eval/README.md](../eval/README.md)). ~$0.10 spend over 500-pair eval. |
 |  | **[M4 gate]** | | Phase 1 done — eval CSV + MLflow history + adapter on disk |
 
 ### Phase 2 — SageMaker hosting (triggered separately)
 
+Tier 14A (IAM user) + 14B (Budgets alarm) + Bedrock model access were pulled forward to M2 (see tier 6C above). Only 14C + 14D remain at Phase 2.
+
 | Tier | Tasks | Type | Notes |
 |---|---|---|---|
-| **14** | 14A IAM user `d-accord-dev` + scoped S3 bucket with versioning · 14B AWS Budgets alarm ($50/$100) · 14C **teardown scripts committed before any stand-up** · 14D adapter + retrieval index + embedder snapshot + custom inference handler packaged to SageMaker S3 layout via `publish/package_model.py` | parallel | Stand-up (tier 15) blocked until 14C is in git |
-| **15** | SageMaker endpoint stand-up via boto3 (`ml.g5.xlarge`) | sequential | ~5–10 min cold start |
+| **14** | 14C **teardown scripts committed before any stand-up** (`scripts/teardown_endpoint.py`, `scripts/teardown_all.py --nuke`) · 14D adapter + retrieval index + embedder snapshot + custom inference handler packaged to SageMaker S3 layout via `publish/package_model.py` | parallel | Stand-up (tier 15) blocked until 14C is in git. 14A/14B already done at M2. |
+| **15** | SageMaker endpoint stand-up via boto3 (`ml.g5.xlarge`, `ap-southeast-1`) | sequential | ~5–10 min cold start |
 | **16** | Smoke test 10 source clauses via side-by-side comparison view (5 in-domain, 5 out-of-domain); verify provenance tags (`gold-retrieval` / `fine-tune-generalization`) return correctly + CSV export round-trip | sequential | |
 | **17** | Capture — recording + screenshots | sequential | |
 | **18** | Endpoint teardown | sequential | Within 48 h of capture · spend <$100 |
@@ -94,28 +96,33 @@ D'accord ([README.md](../README.md)) is a private QLoRA fine-tune of Qwen3-8B fo
 
 ## 3. Execution Notes
 
-**The two long async jobs** are **7A** (ensemble generation, ~3 days) and **12A** (full QLoRA train, overnight). 1D (PDF download) is also unattended but short. These are the only places idle time can accumulate — launch each *before* sitting down to its tier's parallel tasks (7B/7C and 12B/12C). 7A's ~3-day duration is now driven by free-tier RPD pacing across providers (Groq ~14400 RPD, Cerebras free-tier daily quota, Google AI Studio 1500 RPD, DeepSeek), not by API spend or rate limits — the ensemble runner schedules per-provider request streams against current free-tier quotas verified at run time.
+**The two long async jobs** are **7A** (ensemble generation, **overnight via async batch APIs**) and **12A** (full QLoRA train, overnight on local GPU). 1D (PDF download) is also unattended but short. Both 7A and 12A are submit-and-walk-away: 7A submits 4 batch jobs (3 to Bedrock in `ap-southeast-1`, 1 to Google AI Studio) at end of d7 and reads results back on d8 morning; 12A queues on the RTX 5080 at end of d11 and training completes overnight for the d12 eval pass.
 
-**Ensemble checkpointing**: write `data/ensemble/raw/{framework_pair}__{model}.jsonl` as each batch lands. Resume logic skips completed pairs so a free-tier RPD cap hit at hour 4 of 6 burns zero re-work; the runner waits for the daily reset and continues.
+**Ensemble checkpointing**: write `data/ensemble/raw/{framework_pair}__{model}.jsonl` as each batch job completes; the poll script (`scripts/run_ensemble.py --poll`) is idempotent and resumable — re-running picks up any unfinished jobs. Bedrock batch jobs survive operator-side interrupts because the work runs cloud-side.
 
 **Rough timeline** (solo dev, baseline velocity):
 
-| Days | Tiers | Closes |
-|---|---|---|
-| d1–3 | 1 + 2 + 3 | **M0** |
-| d4–6 | 4 + 5 | **M1** (end of week 1) |
-| d7–10 | 6 + 7 + 8 + 9 | **M2** |
-| d11–12 | 10 + 11 | **M3** |
-| d13–15 | 12 + 13 | **M4** — Phase 1 done |
-| later | 14 → 18 | **M5** (Phase 2, triggered separately) |
+| Days | Tiers | Closes | Notes |
+|---|---|---|---|
+| d1–3 | 1 + 2 + 3 | **M0** | unchanged |
+| d4–6 | 4 + 5 | **M1** (end of week 1) | unchanged |
+| d7 | 6A + 6B + **6C/6D AWS+Google account setup** | — | AWS prelim parallel with prompt/tiering code |
+| d7 eve | 7A submit (4 batch jobs) + 7B splits + start 7C hand-val | — | submit and walk away |
+| d8 morn | 7A poll/download (~1 h compute) + 8 tiering + finish 7C hand-val | — | F9 strong-mid ensemble → ~10 h total 7C labor (vs ~25 h on free-tier) |
+| d8 eve | 9 gold freeze + splits + dataset SHA + MLflow tags | **M2** | **3 days post-M1** (was 4) |
+| d9 | 10A train script + 10B sweep config | — | |
+| d10 | 11 small-sweep (200 pairs × 1 epoch) | **M3** | 2 days post-M2 (unchanged) |
+| d11 eve | 12A queue overnight train + 12B eval script + retrieval baseline + 12C deploy/Streamlit | — | parallel |
+| d12 | 13 three-tier eval (Bedrock Haiku 4.5 judge) | **M4** — Phase 1 done | **d12 (was d15) — 3 days saved** |
+| d13–14 | 14C teardown scripts + 14D S3 model packaging + 15 endpoint + 16 smoke + 17 capture + 18 teardown | **M5** | tier 14A/B already done at M2 → Phase 2 cuts to ~2 days |
 
 ---
 
 ## 4. Milestone Gates
 
-### Phase 1 — Local validation (M0 → M4)
+### Phase 1 — Local validation + cloud-batch M2 ensemble (M0 → M4)
 
-All ML substance happens here. No AWS resources stood up. Zero AWS spend risk. If Phase 2 is deferred indefinitely, Phase 1 still constitutes a complete deliverable set (eval CSV + MLflow runs + local-inference recording + README).
+All ML substance happens here. AWS account stood up at M2 (tier 6C, pulling 14A/14B forward) for Bedrock batch ensemble + future SageMaker reuse; total Phase 1 paid-API spend ~$3.25 (M2 ensemble ~$3.13, M4 eval judge ~$0.10). If Phase 2 is deferred indefinitely, Phase 1 still constitutes a complete deliverable set (eval CSV + MLflow runs + local-inference recording + README + provisioned AWS account ready for re-use).
 
 ### M0 — Eval Bar Locked (end of d3)
 
@@ -129,29 +136,48 @@ All ML substance happens here. No AWS resources stood up. Zero AWS spend risk. I
 - **Artifact**: `data/registry/*.json` per framework + parser bake-off score table
 - **Cut criterion**: Thai bake-off has no clear winner OR both candidates fail on Royal Gazette amendments → drop Royal Gazette (keep PDPA-TH core only); document the cut. (**Resolved 2D**: Marker won with 48/48 perfect citation extraction on PDPA-TH original; cut not triggered.)
 
-### M2 — Gold Set Frozen (~d10)
+### M2 — Gold Set Frozen (~d8)
 
-- **DoD**: ≥500 hand-validated gold pairs · ensemble outputs checkpointed · HIGH-tier stratified spot-check shows no jurisdiction <80% sample quality · jurisdiction-disjoint train/test split committed with dataset hash
-- **Artifact**: `data/gold/gold_v1.jsonl` + `data/splits/{train,val,test}.jsonl` + spot-check report
-- **Cut criterion**: gold <300 by d10 → drop Malaysia + Philippines (cheap completers); two-native-language story stays intact.
+- **DoD**: ≥500 hand-validated gold pairs · ensemble outputs checkpointed · HIGH-tier stratified spot-check shows no jurisdiction <80% sample quality · jurisdiction-disjoint train/test split committed with dataset hash · **AWS account scoped + Bedrock model access provisioned in `us-east-1` for the 4 F9-E ensemble members** (tier 14A/14B pulled forward from M5)
+- **Artifact**: `data/gold/gold_v1.jsonl` + `data/splits/{train,val,test}.jsonl` + spot-check report + `data/ensemble/raw/*.jsonl` (4 model outputs × ~30 framework-pairs each)
+- **Tier-7A execution path** — three concrete options behind a single `EnsembleStrategy` abstraction, fully documented in [docs/7a_path.md](7a_path.md):
+  - **Path 1 — Bedrock batch** (the F9-E lineup below; status: blocked on AWS $0 spend limit, preserved as `BedrockBatchStrategy` + `BedrockSyncStrategy` in [src/daccord/ensemble/strategies/bedrock.py](../src/daccord/ensemble/strategies/bedrock.py))
+  - **Path 2 — Paid direct API** (**default; recommended first pass**): Claude Haiku 4.5 + GPT-5-mini + Gemini 3.1 Flash Lite + Qwen 3-235B-A22B Instruct via Together, all 2025+ generation, four families (Anthropic / OpenAI / Google / Alibaba). ~$6.56 + ~45 min for Scope B (`--max-clauses-per-pair 30`). Implemented as `PaidAPIStrategy` in [src/daccord/ensemble/strategies/paid_api.py](../src/daccord/ensemble/strategies/paid_api.py); resumable per-call via the `daccord.ensemble.strategy` contract (per-call JSONL append + skip-by-source_id on re-run).
+  - **Path 3 — 4-provider free** (sketched, not implemented this MR): Gemini 3.1 Flash Lite + NVIDIA NIM + Mistral La Plateforme + OpenRouter `:free`. ~$0 + ~1.5 days for Scope B (RPD-bound).
+- **Ensemble (F9-E, Bedrock-only, `us-east-1`)** — the Path 1 lineup; preserved when AWS unblocks: auto-label-optimized — **Llama 4 Scout** (2025-04) + **Llama 4 Maverick** (2025-04) + **Claude Haiku 4.5** (2025-10) + **Amazon Nova 2 Lite** (2025-12, extended thinking OFF for clean JSON output). Tier 8 HIGH=4/4 agreement preserved. **~$3.75 spend** at mid scope (~30 framework-pairs, ~12 K total raw candidates, ~3 K per seat).
+- **Region rationale**: Path 1 Bedrock batch runs in `us-east-1` because Llama 4 Scout/Maverick are not reachable from `ap-southeast-1` (Geo CRIS is US-source only; no Global CRIS for Llama 4 as of 2026-05). Bedrock batch in us-east-1 from Thailand adds ~30 s total latency over the run (negligible at 24 h SLA). Path 2 has no region dependency. M5 SageMaker stays in `ap-southeast-1` (low RTT for the live demo).
+- **Cut criterion**: gold <300 by d8 → drop Malaysia + Philippines (cheap completers); two-native-language story stays intact. Secondary cut: any single Bedrock model-access request still pending by d7 morning → fall back to a 3-seat ensemble (drop the pending one, retier tier 8 to HIGH=3/3). Tertiary fallback already implemented: Path 2 paid direct API bypasses AWS entirely.
+- **M2 prep status (2026-05-27)**: tier 6A (ensemble prompt + registry loader), 6B (HIGH/MED/LOW/SALVAGE classifier + CLI), 6C (AWS resource setup scripts in `us-east-1`), cost-config (`bedrock_batch` + Path 2 pricing rows) all **landed and tested green**. **Tier-7A Path 2 implementation complete + verified end-to-end against live APIs** (this MR):
+  - **Modularization**: `BatchPrompt` + `model_slug` hoisted to [src/daccord/ensemble/prompt.py](../src/daccord/ensemble/prompt.py) with back-compat re-export from `daccord.aws.batch`; `EnsembleStrategy` Protocol + resilient JSONL helpers at [src/daccord/ensemble/strategy.py](../src/daccord/ensemble/strategy.py); Path 1 wrapped as `BedrockBatchStrategy` + `BedrockSyncStrategy` in [src/daccord/ensemble/strategies/bedrock.py](../src/daccord/ensemble/strategies/bedrock.py); Path 2 as `PaidAPIStrategy` in [src/daccord/ensemble/strategies/paid_api.py](../src/daccord/ensemble/strategies/paid_api.py).
+  - **Per-provider throttle**: [src/daccord/eval/_rpm.py](../src/daccord/eval/_rpm.py) rewritten with `threading.Lock` + per-provider RPM dict; env-overridable via `DACCORD_RPM_<PROVIDER>` (e.g. `DACCORD_RPM_GOOGLE_GEMINI=4000` for the operator's paid Gemini Tier 2).
+  - **New clients**: `AnthropicClient` (tool_use forced-call), `OpenAIClient` (strict json_schema; auto-detects GPT-5 family and bumps `max_completion_tokens=2000` to cover reasoning tokens + omits unsupported `temperature=0.0`), `TogetherClient` (OpenAI-compatible, base_url=`api.together.xyz/v1`).
+  - **Lineup swap from the M2 prep design**: Together Llama 4 Maverick FP8 was originally chosen but is **dedicated-endpoint-only** on Together as of 2026-05 (live API probe confirmed). Swapped to `Qwen/Qwen3-235B-A22B-Instruct-2507-tput` (serverless, 2025-07, $0.20/$0.60 per 1M — cheaper than Maverick FP8). Family diversity stays four: Anthropic / OpenAI / Google / Alibaba.
+  - **Resilience contract** (verified live + via 39 unit tests): per-call JSONL append + `fsync` so crashes lose at most one in-flight call; resume-by-source_id skips already-completed rows on re-invocation; `--retry-errors` flag scrubs parse_error rows per-seat so a previously-failed (seat, source_id) cell gets re-called WITHOUT touching the other 19 cells (demonstrated: 1 synthetic parse_error → re-run made exactly 1 new API call, $0.001).
+  - **CLI**: new `run-paid` subcommand in [scripts/run_ensemble.py](../scripts/run_ensemble.py) with `--smoke`, `--max-clauses-per-pair`, `--framework-pair`, `--dry-run`, `--retry-errors`.
+  - **Cost-config**: `claude-haiku-4-5`, `gpt-5-mini`, `Qwen/Qwen3-235B-A22B-Instruct-2507-tput` pricing rows added; `google_gemini` RPD cap bumped 1500 → 150000 to match operator's paid Tier-2 quota.
+  - **Verification**: 233 tests pass (39 new for Path 2); ruff + ruff-format + pyright clean; live smoke (5 GDPR→PDPA-SG clauses × 4 seats = 20 calls, ~$0.02) succeeded; tier-6B aggregation on smoke output classified 1 HIGH + 2 MED + 2 LOW correctly.
+  - **Operator runbook for the full 72-pair Scope A run**: `DACCORD_RPM_GOOGLE_GEMINI=4000 docker compose run --rm root uv run python scripts/run_ensemble.py run-paid`. Expected: ~32K invocations × ~750 tokens each, ~$25 + ~2.7 h wall-clock, Anthropic Haiku 4.5 at 50 RPM as the bottleneck. Resumable; re-running picks up cleanly after any interruption.
+  - **Tier 7A executed 2026-05-27**: full 72-pair Scope A run completed with **35,552 raw candidates** on disk, 99.955% success rate. Total wall-clock ~6.5 h (longer than projected due to per-call latency, not the 50 RPM throttle). Total spend ~$32 (Anthropic + OpenAI + Together + paid Gemini ~$5 not separately tracked). 16 remaining parse_errors are deterministic context-window overflows on a single source `dpa_2018-215` × {Claude Haiku 4.5, Qwen 3-235B} — recoverable only with source-clause truncation. **Hand-off doc for the next session**: [docs/tier7_handoff.md](tier7_handoff.md) covers fuzzy-label rewrite, tier 7B (splits), tier 7C (hand-validation), tier 8 + 9 (gold freeze).
+  - **⚠ Raw-data immutability rule**: post-2026-05-27, `data/ensemble/raw/*.jsonl` is **immutable per (file, source_id)**. Three writers in [src/daccord/ensemble/strategy.py](../src/daccord/ensemble/strategy.py) enforce this via `ImmutabilityViolation`: `append_candidate` refuses duplicate source_ids; `write_candidates_atomic` refuses to drop any previously-successful row; `prune_parse_errors` only removes parse_error rows. Only `scripts/run_ensemble.py run-paid --retry-errors` is allowed to mutate raw (and only by replacing parse_error rows). Future derivatives go in separate dirs (`data/ensemble/tiered/`, `data/ensemble/fuzzy/`, etc.) — never edit raw.
 
-### M3 — Small-Sweep Validated (~d12)
+### M3 — Small-Sweep Validated (~d10)
 
 - **DoD**: 1 epoch × 200 pairs trains end-to-end · loss curve sensible · adapter saves+reloads cleanly · MLflow autolog shows the run with adapter SHA logged
 - **Artifact**: MLflow screenshot + sanity-check inference output
 - **Cut criterion**: OOM at QLoRA-7B on the 5080 → drop max_seq_len 4096→2048, add gradient checkpointing, micro-batch 1 + grad-accum 16. If still OOM, **swap to Unsloth** before full train.
 
-### M4 — Eval Delta Proven (~d15) — Phase 1 done
+### M4 — Eval Delta Proven (~d12) — Phase 1 done
 
 - **DoD**: Three-tier eval against M2 gold · per-jurisdiction + per-language breakdown · delta vs M0 baselines numerically captured
 - **Artifact**: `eval/results_v1.csv` + per-jurisdiction breakdown table; MLflow run history; updated README
-- **Cut criterion**: fine-tune delta vs base Qwen <5% on Tier-1 citation accuracy AND negative vs Llama 3.x 70B on every jurisdiction AND **no advantage over the retrieval baseline on the out-of-domain slice** → **do not push to SageMaker**. The retrieval-baseline qualifier is what makes the cut honest: if retrieval ties or beats fine-tune everywhere, ship as retrieval-only (architecture pivot), don't ship the heavier serving stack just to preserve the original framing. Document the honest negative result in the eval CSV. (No paid-API spend to tear down — ensemble + baselines + judge are all free-tier OSS.)
+- **Eval-judge routing**: Bedrock Haiku 4.5 (account already warm from M2) instead of free-tier Gemini — eliminates tier 13's prior 500-RPD bottleneck. ~$0.10 spend over 500-pair × 4-comparator eval.
+- **Cut criterion**: fine-tune delta vs base Qwen <5% on Tier-1 citation accuracy AND negative vs Llama 3.x 70B on every jurisdiction AND **no advantage over the retrieval baseline on the out-of-domain slice** → **do not push to SageMaker**. The retrieval-baseline qualifier is what makes the cut honest: if retrieval ties or beats fine-tune everywhere, ship as retrieval-only (architecture pivot), don't ship the heavier serving stack just to preserve the original framing. Document the honest negative result in the eval CSV. (Total Phase 1 paid-API spend if cut: ~$3.25 — the M2 ensemble batch already submitted, the M4 eval judge is post-train so can be skipped if cut triggers earlier.)
 
 ### Phase 2 — SageMaker hosting (M5)
 
-Trigger when M4 has a publishable delta AND there's a concrete reason (demo, runway) to absorb the AWS spend. Until then, Phase 1 artifacts are sufficient.
+Trigger when M4 has a publishable delta AND there's a concrete reason (demo, runway) to absorb the AWS spend. AWS account is already warm from M2 (IAM, S3, Budgets all done at tier 6C) so cold-start time is just teardown-scripts + S3 model packaging + endpoint stand-up (~2 days).
 
-### M5 — Endpoint Live, Captured, Torn Down (~2–3 days when triggered)
+### M5 — Endpoint Live, Captured, Torn Down (~2 days when triggered)
 
 - **DoD**: Endpoint live · side-by-side comparison view returns retrieval + fine-tune + base outputs with provenance tags for 5 test source clauses · CSV export verified · short screen recording captured · **endpoint torn down** · S3 artifact remains (cheap)
 - **Artifact**: Recording + 4–6 screenshots + adapter S3 URI
@@ -173,13 +199,14 @@ Trigger when M4 has a publishable delta AND there's a concrete reason (demo, run
 
 ## 6. Cloud / Cost Practices
 
-- **Phase 1 spend** is effectively $0 — ensemble (7A) + LLM-as-judge (13) both run on open-source models via free-tier APIs (Groq, Cerebras, Google AI Studio, DeepSeek direct). Only paid Phase 1 cost is ~$5–10 LlamaParse fallback if Marker fails on a specific document. One row per day in `costs/daily.csv` committed to repo with **request-count** entries against per-provider RPD caps (Groq ~14400 RPD, Google AI Studio ~1500 RPD; Cerebras + DeepSeek quotas verified at run time). Hard $5/provider paid-spill ceiling if free tier exhausts during a run.
-- **Phase 2 SageMaker discipline**: `ml.g5.xlarge` ≈ $1.40/hr; **target <48 h total live**; stand up → smoke test (10 prompts) → capture → tear down (~2 h live). Re-stand-up on demand from `scripts/deploy_endpoint.py`; budget for ~5–10 min cold start for live demos. Cold start now also loads the MPNet embedder + FAISS index alongside the 7B adapter (~1–2 GB additional read; negligible time impact vs the adapter load).
-- **IAM least-privilege**: dedicated user `d-accord-dev`, never root; two policies: `s3:* on arn:aws:s3:::d-accord-artifacts/*` and `sagemaker:* on resources tagged Project=d-accord`.
-- **S3 versioning** enabled on `d-accord-artifacts` (trivial cost, prevents adapter clobber).
-- **Teardown as committed code** before first stand-up (`scripts/teardown_endpoint.py`, `scripts/teardown_all.py --nuke`).
-- **API spend resilience**: ensemble outputs checkpointed per `(framework_pair, model)` to `data/ensemble/raw/`; resume logic skips completed pairs.
-- **Project tag** `Project=d-accord` on every AWS resource for cost attribution.
+- **Phase 1 spend** is **~$3.25** — M2 ensemble batch (~$3.13: F9 ensemble across Bedrock + Google AI Studio) + M4 eval judge (~$0.10: Bedrock Haiku 4.5 over 500-pair eval). Plus ~$5–10 LlamaParse fallback if Marker fails on a specific document. Free-tier providers (Groq, Cerebras, DeepSeek) are no longer in the critical path — the prior plan's free-tier RPD pacing was the source of the 3-day async wait at 7A. One row per day in `costs/daily.csv` committed to repo with provider-specific entries; F9 batch invocations log against `bedrock_batch` and `gemini_paid` provider keys with their pre-priced rates in [costs/config.toml](../costs/config.toml). Hard $5/day USD cap per provider enforces the ceiling.
+- **Phase 2 SageMaker discipline**: `ml.g5.xlarge` ≈ $1.40/hr in `ap-southeast-1`; **target <48 h total live**; stand up → smoke test (10 prompts) → capture → tear down (~2 h live). Re-stand-up on demand from `scripts/deploy_endpoint.py`; budget for ~5–10 min cold start for live demos. Cold start now also loads the MPNet embedder + FAISS index alongside the 7B adapter (~1–2 GB additional read; negligible time impact vs the adapter load).
+- **AWS account scope** (pulled forward from M5 to M2 prelim at tier 6C): reuse the existing `caravan-poc` AdministratorAccess profile (no new IAM user — saves the policy-attachment dance). `scripts/aws_setup.sh` creates the scoped S3 bucket `daccord-dev-{account_id}` + the Bedrock-batch service role `DaccordBedrockBatchService` with a least-priv inline policy (s3:Get/Put/List on the daccord bucket only) and a trust policy locked to `bedrock.amazonaws.com` + this account's `aws:SourceAccount`. **Region split**: M2 Bedrock batch in **`us-east-1`** (Llama 4 access requirement); M5 SageMaker endpoint in **`ap-southeast-1`** (low RTT for the live demo from Thailand).
+- **S3 versioning** enabled on `daccord-dev-{account_id}` (trivial cost, prevents adapter clobber + protects M2 ensemble outputs from re-run overwrites).
+- **Teardown as committed code**. **M2 (tier 6C)**: `scripts/aws_teardown.sh` (bash) / `scripts/aws_teardown.ps1` (PowerShell) — destroys the daccord S3 bucket (including all versioned objects + delete markers) and the `DaccordBedrockBatchService` IAM role + inline policy. Bedrock batch jobs themselves are on-demand (no persistent endpoint), so the only M2 cleanup is bucket + role. Run after M4 if the M5 SageMaker push is deferred, OR keep the bucket if you want to retain `data/ensemble/raw/` for re-tiering. **M5 (tier 14C)**: `scripts/teardown_endpoint.py`, `scripts/teardown_all.py --nuke` for SageMaker endpoint + S3 model artifacts — committed before first stand-up.
+- **API spend resilience**: ensemble outputs checkpointed per `(framework_pair, model)` to `data/ensemble/raw/`; batch poll script (`scripts/run_ensemble.py --poll`) is idempotent and resumes if interrupted. Bedrock batch jobs run cloud-side and survive operator-side interrupts.
+- **Project tag** `Project=daccord` on every AWS resource (S3 bucket, Bedrock batch jobs, SageMaker endpoint, IAM policies) for cost attribution.
+- **AWS Budgets alarm**: $50 warning + $100 hard threshold scoped to the `Project=daccord` cost-allocation tag — established at tier 6C, applies across M2 and M5.
 
 ---
 
@@ -189,11 +216,11 @@ Trigger when M4 has a publishable delta AND there's a concrete reason (demo, run
 |---|---|---|---|---|---|
 | R1 | Thai parser bake-off has no clear winner; registries unreliable | Medium | High (kills SEA differentiation) | Bake-off in M0/M1 on 5-page sample; cut = drop Royal Gazette, keep core PDPA-TH | ~~Day-2 bake-off scores cluster within 5% across all 3 parsers~~ **Resolved 2D**: Marker locked (48/48 citation extraction, ~2× faster than Typhoon; PaddleOCR candidate dropped pre-execution). |
 | R2 | Ensemble agreement collapses on SEA frameworks (shared blind spots) | Medium-High | High (gold set thin) | Stratified human spot-check on HIGH-tier *per jurisdiction* (M2); cut = drop weakest 2 SEA jurisdictions | HIGH-tier spot-check <70% on any one jurisdiction |
-| R3 | Gold dataset stalls <500 pairs by M2 | Medium | Medium (eval power weakens) | Cut to 6 jurisdictions (drop MY + PH); reuse HIGH-tier with 10% audit as proxy | By d8, validation pace projects <400 pairs by d10 |
+| R3 | Gold dataset stalls <500 pairs by M2 | Medium | Medium (eval power weakens) | Cut to 6 jurisdictions (drop MY + PH); reuse HIGH-tier with 10% audit as proxy | By d8 morning (after 7A batch results land), HIGH-tier yield projects <400 pairs at full hand-val |
 | R4 | Qwen3-8B tokenizer fragments Thai/FR worse than expected | Low-Medium | High (kills language-validation moat) | M0 tokenizer audit before training plumbing; swap to SeaLLM-v3 or Typhoon-7B if Thai byte-fallback >20% | Audit shows >2.5 tokens/char on Thai or byte-fallback artifacts |
 | R5 | RTX 5080 OOM at QLoRA-7B with full seq_len | Medium | Medium (slows training) | M3 small-sweep catches before full train; mitigations: max_seq_len 2048, gradient checkpointing, micro-batch 1 + grad-accum 16; **swap to Unsloth** if needed | Small-sweep OOMs at any seq_len >1024 |
 | R6 | Fine-tune delta vs frontier baseline marginal or negative | Medium | High (kills the headline value claim — "small specialist beats / matches frontier") | M0 baselines set expectation early; M4 cut = document honest negative result and skip Phase 2 | Tier-1 citation accuracy delta vs base Qwen <5% by mid-train checkpoint |
-| R7 | Free-tier RPD exhaustion stalls ensemble (Phase 1 spend is $0 OSS-via-free-tier; risk is rate, not cost) | Low | Low (delays, not $ ceiling breach) | Per-provider RPD caps + checkpointed ensemble outputs; runner waits for daily reset and resumes; hard $5/provider paid-spill ceiling if absolutely needed | Free-tier RPD exhaustion on 2 providers within same eval-pass window |
+| R7 | Bedrock model-access provisioning or Google AI Studio billing setup delays 7A submission past d7 evening | Low-Medium | Low (1-day slip, not $ ceiling breach) | All 4 F9 models requested in parallel at d7 morning under tier 6C; if any single model is still pending by d7 evening, **fall back to 3-seat Bedrock-only ensemble** (drop Gemini; retier tier 8 HIGH=3/3 with documented impact); hard $5/day USD cap per provider in [costs/config.toml](../costs/config.toml) guards spend ceiling. Batch jobs run cloud-side so operator-side interrupts are free. | Any Bedrock `bedrock:ListFoundationModels` call at d7 morning returns `modelLifecycle.status != ACTIVE` for a chosen model OR Google AI Studio billing enable still pending |
 | R8 | Browser-print PDFs (UK-GDPR, UK DPA 2018, FR Loi I+L) parse noisily under Marker — Légifrance + legislation.gov.uk expose no scraper-friendly consolidated PDF, so 1D fell back to print-to-PDF (5–60× larger than regulator-issued PDFs, embedded page chrome) | Medium | Medium (registry drift on EU-spine + UK) | At tier 4, spot-check Marker output on these 3 vs a regulator-issued reference (e.g., BDSG); fallback = headless-browser PDF export with print-CSS suppression, or source from Legifrance API / legislation.gov.uk Atom feed | Tier 4 Marker output for UK/FR contains >2× the unrecognised tokens or broken citation IDs vs auto-downloaded sources |
 | R9 | Retrieval baseline dominates fine-tune on in-domain AND ties on out-of-domain → architectural claim (specialist value-add) weakens | Medium | Medium (reframes the value claim, doesn't kill it) | Ship the eval CSV honestly; reframe README from "fine-tune is the engine" to "hybrid serving with provenance — retrieval for known, fine-tune for novel" (current default framing already supports this). If retrieval wins everywhere, ship as retrieval-only and demote the QLoRA adapter to "experimental comparator" in the project narrative — MLflow runs + training script + adapter SHA still constitute a real technique deliverable. | M3 small-sweep loss curve plateaus near base-Qwen on validation; OR M4 eval shows retrieval >= fine-tune on out-of-domain slice |
 
@@ -209,12 +236,14 @@ End-to-end DoD for this development cycle:
 3. MLflow run history populated with adapter SHA + dataset hash linkage
 4. README updated with parser-bakeoff rationale and eval results
 5. Reproducibility: locked Python env · seeded train script · dataset hash referenced in `eval/results_v1.csv`
+6. **AWS account scoped at M2**: `caravan-poc` admin profile in use (no new IAM user); S3 bucket `daccord-dev-{account_id}` versioned in `ap-southeast-1` with `Project=daccord` tag; Bedrock-batch service role `DaccordBedrockBatchService` created; existing $50/month budget catches `Project=daccord` spend; Bedrock model access ACTIVE for all 4 F9 ensemble models (verified by `python scripts/check_aws_setup.py`)
+7. **M2 ensemble cost reconciliation**: `costs/daily.csv` rows for `bedrock_batch` and `gemini_paid` providers sum to <$5 per day per provider (USD cap held)
 
 **Phase 2 (when triggered)**:
-6. Adapter packaged in SageMaker-compatible S3 layout · adapter S3 URI documented
-7. Endpoint deploy + teardown scripts committed and tested · `Project=d-accord` tag spend remains <$100
-8. Endpoint live for capture session · recording + screenshots in repo · endpoint torn down
-9. IAM policy JSON committed; S3 versioning verified
+8. Adapter packaged in SageMaker-compatible S3 layout · adapter S3 URI documented
+9. Endpoint deploy + teardown scripts committed and tested · `Project=daccord` tag spend remains <$100 across M2 + M5 combined
+10. Endpoint live for capture session · recording + screenshots in repo · endpoint torn down within 48 h of capture
+11. SageMaker-scoped IAM permissions added to the `caravan-poc` profile (or via an inline scoped policy if least-priv is reintroduced at M5) covering `sagemaker:*` on `Project=daccord`-tagged resources; S3 versioning verified
 
 ---
 
@@ -236,6 +265,19 @@ Sections 2–4 describe sequencing at the tier-row granularity. This section zoo
 | 2D parser bake-off | ✓ Done — Marker locked; R1 resolved | See §9.2 |
 | 3A baselines on toy gold | ⚠ Partial (this MR; runs against partial-verified gold per 2A deferral) — `envs/baseline/` + `LocalHFClient` + `GroqJudge` shipped; `qwen` / `groq` / `qwen3` / `gemini` aliases all wired. `eval/baseline_toy.csv` has 80 rows (4 generators × 20 pairs). Base swapped mid-session from Qwen 2.5-7B to Qwen 3-8B (newer multilingual tokenizer; re-audit on Qwen3-8B passed for all 4 languages); judge bumped Llama 3.3-70B → Llama 4 Scout for stronger signal. | Plan in §9.3 |
 | 3B lock parser choice (README) | ⏳ In progress (this MR) — numeric outcome lands in README parser line | Plan in §9.3 |
+| 4 full-corpus PDF→markdown | ✓ Done (2026-05-26) — 13/13 PDFs parsed; R8 spot-check PASS (1.29× regulator-baseline citation density on browser-print docs) | See §9.6 |
+| 5 citation-registry extraction | ✓ Done (2026-05-26) — 9/9 framework registries; 100% toy-gold base-section recall on every framework; **M1 closed** | See §9.7 |
+| 6A ensemble prompt + registry loader | ✓ Done (2026-05-26) — registry-pinned ensemble prompt at [src/daccord/eval/prompts.py](../src/daccord/eval/prompts.py); `Registry` loader + `load_registry()` at [src/daccord/eval/registry.py](../src/daccord/eval/registry.py); 16 tests pass | Consumed by tier 7A Path 2 run; see §9.8 |
+| 6B tiering classifier + CLI (fuzzy refactor 2026-05-28) | ✓ Done (2026-05-26; refactored 2026-05-28) — fuzzy `agreement_score` + `valid_vote_count` + `consensus_vote_count` with derived HIGH/MED/LOW/SALVAGE bucket at [src/daccord/ensemble/schema.py](../src/daccord/ensemble/schema.py) + [src/daccord/ensemble/tier.py](../src/daccord/ensemble/tier.py); deterministic CLI at [scripts/tier_ensemble.py](../scripts/tier_ensemble.py); **30 tests pass**; 2026-05-28 compile yields **8,888 tiered pairs** (840 HIGH / 1113 MED / 6633 LOW / 302 SALVAGE) from 35,552 raw rows | See §9.8 |
+| 6B+ bidirectional cross-check (NEW 2026-05-28) | ✓ Done (2026-05-28) — `BidirectionalResult` schema + 7-status classifier at [src/daccord/ensemble/bidirectional.py](../src/daccord/ensemble/bidirectional.py); CLI at [scripts/cross_check_ensemble.py](../scripts/cross_check_ensemble.py); **14 tests pass**; 2026-05-28 run yields **420 consistent / 1878 inconsistent / 6231 reverse_unknown / 57 missing_in_registry / 302 no_forward_consensus** across 8,888 pairs | See §9.8 |
+| 6B++ RAG seat (NEW 2026-05-29) | ✓ Done (2026-05-29) — local-compute 5th-seat strategy at [src/daccord/ensemble/strategies/rag_seat.py](../src/daccord/ensemble/strategies/rag_seat.py); per-framework target-clause indices via [envs/eval/scripts/build_target_indices.py](../envs/eval/scripts/build_target_indices.py) (paraphrase-multilingual-mpnet-base-v2; 9 indices at `data/indices/target_clauses/`); `run-rag` CLI; **LLM-only fuzzy + RAG side-info**: tier-6B classifier filters local seats via `is_local_seat()` so RAG can't demote LLM HIGH; `TieredPair.rag_concurs` + `rag_vote_citation_id` derived for downstream opt-in promotion; **23 tests pass** (7 target-index + 9 RAG-seat + 5 tier-N=5 side-info + 4 splits rag-promote); ~$0 API cost | See §9.8 |
+| 6C AWS resource prep (us-east-1) | ✓ Done (2026-05-26) — shell setup at [scripts/aws_setup.sh](../scripts/aws_setup.sh) + PowerShell port + teardown pair at [scripts/aws_teardown.sh](../scripts/aws_teardown.sh) + boto3 verification at [scripts/check_aws_setup.py](../scripts/check_aws_setup.py); shared constants at [src/daccord/aws/m2.py](../src/daccord/aws/m2.py); reuses `caravan-poc` admin profile; bucket `daccord-dev-351090596944` + `DaccordBedrockBatchService` role | Path 1 (Bedrock batch) preserved but unused; Path 2 chosen for 7A execution. See §9.8 |
+| 6D ~~Google AI Studio billing enable~~ | **DROPPED (2026-05-26)** — originally Bedrock-only ensemble with no Gemini seat. Tier 7A Path 2 (executed 2026-05-27) later re-added Gemini 3.1 Flash Lite via paid Tier 2 as one of the 4 seats — but it's a direct paid-API call, not Bedrock-routed. Free-tier `google_gemini` provider stays in config for M0 baselines + M4 eval-judge use. | — |
+| Cost-config (bedrock_batch + paid-API rows) | ✓ Done (2026-05-27) — Provider Literal at [src/daccord/costs/config.py](../src/daccord/costs/config.py); pricing rows at [costs/config.toml](../costs/config.toml) for `bedrock_batch` (4 F9-E seats, us-east-1, 50% off on-demand) AND Path-2 seats `anthropic` (`claude-haiku-4-5`), `openai` (`gpt-5-mini`), `together` (`Qwen3-235B-A22B-Instruct-2507-tput`); `google_gemini` RPD cap bumped 1500→150000 for paid Tier 2; $5/day USD cap per provider | Used by both Path 1 (preserved) and Path 2 (executed) |
+| 7A ensemble label generation (Path 2 paid API) | ✓ Done (2026-05-27) — `EnsembleStrategy` Protocol at [src/daccord/ensemble/strategy.py](../src/daccord/ensemble/strategy.py); `PaidAPIStrategy` (Claude Haiku 4.5 + GPT-5-mini + Gemini 3.1 Flash Lite + Qwen 3-235B via Together); `run-paid` CLI at [scripts/run_ensemble.py](../scripts/run_ensemble.py); resilient JSONL with `ImmutabilityViolation` guards (3 sanctioned writers); **35,552 raw candidates** at **99.955% success** across 72 framework-pairs × 4 seats; 16 deterministic context-overflow parse_errors on `dpa_2018-215`; **~$32 total, ~6.5 h wall-clock**. Path 1 (Bedrock batch) preserved as `BedrockBatchStrategy` + `BedrockSyncStrategy` at [src/daccord/ensemble/strategies/bedrock.py](../src/daccord/ensemble/strategies/bedrock.py) but unused. | See §9.9 + [docs/tier7_handoff.md](tier7_handoff.md) + [docs/7a_path.md](7a_path.md) |
+| 7B jurisdiction-disjoint splits | ✓ Done (2026-05-28; extended 2026-05-29) — `scripts/build_splits.py` + library at [src/daccord/ensemble/splits.py](../src/daccord/ensemble/splits.py); `--promote-bidirectional-consistent` + (NEW) `--promote-rag-concurs` flags auto-include MED rows confirmed by each independent signal; per-pair `(forward_pair, source_id)` composite key prevents cross-pair leakage; SHA256 manifest covering tiered + validated + bidirectional inputs; **19 tests pass**; HIGH-only=**840**, +bidirectional=**927**, +RAG=**940**, **+both=1,007** | See §9.9 |
+| 7C UI labeler (Streamlit) | ✓ Done (2026-05-28) — bidirectional-aware reviewer at [consumer/labeler/app.py](../consumer/labeler/app.py); queue plumbing at [consumer/labeler/queue.py](../consumer/labeler/queue.py); validated overlay writer at [src/daccord/ensemble/validated.py](../src/daccord/ensemble/validated.py) (same write-once-per-source_id `ImmutabilityViolation` contract as raw); **16 tests pass** (9 queue + 7 overlay); default filters skip auto-promotable `consistent` and surface `inconsistent` first | See §9.9 |
+| 8 + 9 hand-val + gold freeze | ⏳ Pending — operator runs labeler against **134 HIGH+inconsistent + 243 MED+inconsistent** priority queue (now with RAG as a 3rd signal in the labeler UI); tier 9 freeze to `data/gold/gold_v1.jsonl` with dataset SHA in MLflow per M2 DoD. **Post-RAG gold pool 1,007** (HIGH + bidirectional-MED + rag_concurs-MED, zero hand-val), 2× the dev-plan ≥500 floor. | See [docs/tier7_handoff.md](tier7_handoff.md) |
 
 ### 9.1 — Tier 1 detail (what landed + 1C closure plan)
 
@@ -255,7 +297,7 @@ Sections 2–4 describe sequencing at the tier-row granularity. This section zoo
 
 **1B — MLflow plumbing.** Wired manually rather than via framework autolog (the latter belongs in the training script at tier 10A):
 
-- [src/daccord/tracking.py](../src/daccord/tracking.py) — `setup_mlflow()` resolves tracking URI (env var → `file:./mlruns`), sets experiment; `log_standard_params()` logs the reproducibility contract (`run_name`, `git_commit`, `seed`, `dataset_hash`, extras) and tags `project=d-accord`; `log_adapter_sha256()` for tier 10–13; `set_all_seeds()` seeds `random` + `numpy` + `torch` + `transformers` (lazy-imported).
+- [src/daccord/tracking.py](../src/daccord/tracking.py) — `setup_mlflow()` resolves tracking URI (env var → `file:./mlruns`), sets experiment; `log_standard_params()` logs the reproducibility contract (`run_name`, `git_commit`, `seed`, `dataset_hash`, extras) and tags `project=daccord`; `log_adapter_sha256()` for tier 10–13; `set_all_seeds()` seeds `random` + `numpy` + `torch` + `transformers` (lazy-imported).
 - Smoke test: [scripts/mlflow_smoke_test.py](../scripts/mlflow_smoke_test.py) exercises the plumbing end-to-end (URI resolution, run creation, param logging) and can be re-run anytime to validate the local MLflow store. Local backend at `mlruns/` (gitignored); Phase 2 swaps via `MLFLOW_TRACKING_URI` with no code change.
 - Reuse: [src/daccord/eval/runner.py](../src/daccord/eval/runner.py) calls `setup_mlflow` + `log_standard_params` per parent run, nests one child run per generator, and logs metrics via `mlflow.log_metric()`. Tier 10A will add `mlflow.<flavor>.autolog()` at the top of `training/train.py`; the manual contract from 1B continues alongside.
 
@@ -349,7 +391,7 @@ What's still needed before M0 can close (per the 2A acceptance criteria below):
   - `runner.py` — orchestrates generators + judge, emits CSV + MLflow runs.
   - `prompts.py`, `schema.py` — `PromptMessages`, `CitationCandidate`, `ModelResponse`.
 - CSV row contract (14 columns, stable from M0 → M4): `gold_id, model, source_jurisdiction, source_framework, target_jurisdiction, target_framework, source_language, target_language, predicted_citation_id, expected_citation_id, citation_match, judge_score, judge_bucket, judge_reasoning`.
-- MLflow shape: parent run (tags `project=d-accord`, `gate=M0`, `prompt_variant=unconstrained-m0`), one nested child per generator. Child metrics include `tier1_citation_match_overall`, per-jurisdiction (`tier1_citation_match__jur__<jur>`), per-language (`tier1_citation_match__lang__<lang>`), per-framework-pair (`tier1_citation_match__fwpair__<src>__<tgt>`), `tier2_judge_mean`, `tier2_judge_pct_above_0.7`, judge-bucket counts.
+- MLflow shape: parent run (tags `project=daccord`, `gate=M0`, `prompt_variant=unconstrained-m0`), one nested child per generator. Child metrics include `tier1_citation_match_overall`, per-jurisdiction (`tier1_citation_match__jur__<jur>`), per-language (`tier1_citation_match__lang__<lang>`), per-framework-pair (`tier1_citation_match__fwpair__<src>__<tgt>`), `tier2_judge_mean`, `tier2_judge_pct_above_0.7`, judge-bucket counts.
 - Tests: `envs/eval/tests/test_eval_{runner,clients,prompts,schema,scoring}.py` — 40+ assertions covering end-to-end mocked generation + judging, CSV contract stability, MLflow nesting, aggregation.
 - See also: [eval/README.md](../eval/README.md).
 
@@ -644,6 +686,311 @@ docker compose run --rm root uv run python scripts/extract_registry.py
 # → "[done] processed=9 skipped=0" + every framework's recall=1.00 → exit 0
 docker compose run --rm root uv run python scripts/extract_registry.py
 # → "[done] processed=0 skipped=9" (idempotency confirmed)
+```
+
+### 9.8 — Tier 6 (ensemble prompt + tiering + bidirectional cross-check + AWS prep) — **DONE 2026-05-26 → 2026-05-28**
+
+**Status: ✓ Closed.** Four landed sub-tiers (6A registry-pinned ensemble prompt, 6B HIGH/MED/LOW/SALVAGE classifier — refactored 2026-05-28 to fuzzy fields, 6B+ NEW bidirectional cross-check, 6C AWS resource prep in `us-east-1`) plus one dropped sub-tier (6D Google AI Studio billing) and cost-config additions (bedrock_batch + Path-2 paid-API pricing rows). 60 tests across the tier-6 surface. Plan file: `~/.claude/plans/7a-spent-most-time-abstract-eagle.md` (covers the 2026-05-28 fuzzy + bidirectional landings).
+
+**6A — Ensemble prompt + registry loader (2026-05-26):**
+
+- ✓ [src/daccord/eval/prompts.py](../src/daccord/eval/prompts.py) — `ENSEMBLE_SYSTEM` (with strict "MUST be one of the exact" / "Do not invent" / "Do not paraphrase" / "Do not add prefixes" / "no analogous clause → empty string" language); `ENSEMBLE_USER_TEMPLATE` (8 placeholders including `{registry_block}` + `{registry_count}`); `_format_registry_block` (comma-separated quoted IDs, ~50% token saving vs bullets); `build_ensemble_prompt(*, ...)` keyword-only builder. Output schema is `{"citation_id": str, "target_mechanism": str, "mapping_justification": str}`; runs tagged `prompt_variant='ensemble-registry-pinned'` in MLflow.
+- ✓ [src/daccord/eval/registry.py](../src/daccord/eval/registry.py) — `Registry(ValidatedModel)` with `framework` / `jurisdiction` / `citation_ids` (extras tolerated); `load_registry(framework, registry_dir)` wraps `_load_registry_cached` (`@lru_cache(maxsize=64)` keyed by absolute path). Reads `data/registry/{framework}.json` (tier-5 output).
+- ✓ Tests — 16 tests in [envs/eval/tests/test_ensemble_prompt.py](../envs/eval/tests/test_ensemble_prompt.py) across `TestRegistryLoader` (4), `TestEnsembleSystemPrompt` (4), `TestEnsembleUserTemplate` (2), `TestBuildEnsemblePrompt` (6 including a 288-entry DPA-2018 sweep, Thai `มาตรา N`, and integration with real `data/registry/pdpa_sg.json`).
+
+**6B — Tiering classifier + CLI (2026-05-26; refactored 2026-05-28 to fuzzy):**
+
+The original HIGH/MED/LOW/SALVAGE classifier shipped 2026-05-26 with 24 tests. The 2026-05-28 fuzzy refactor (operator request post-7A execution) reworked agreement scoring so missing votes (parse_error) no longer artificially inflate dissensus, and the 3/4-vs-4/4 bucket boundary no longer flattens meaningful confidence differences. The legacy `tier` field is preserved as a back-compat derived bucket.
+
+- ✓ [src/daccord/ensemble/schema.py](../src/daccord/ensemble/schema.py) — `TieredPair(ValidatedModel)` now carries three primary fuzzy fields (`valid_vote_count: int`, `consensus_vote_count: int`, `agreement_score: float`) plus legacy `tier: Literal["HIGH","MED","LOW","SALVAGE"]`, `consensus_citation_id`, and `votes: list[ModelVote]`. `ModelVote` preserves raw + normalized citation + per-vote `parse_error`. `EnsembleCandidate` is the tier-7A input shape with optional `parse_error`.
+- ✓ [src/daccord/ensemble/tier.py](../src/daccord/ensemble/tier.py) — derivation order: full citation match → strict majority → unanimous parent fallback → plurality → SALVAGE. `_extract_parent` regex `^([^(]+?)\s*(?:\(.*)?$` handles `32(1)(a)`→`32`, `5A`→`5A`, `มาตรา 19`→`มาตรา 19` (splits only on `(`, not language-aware). Parent-fallback only fires when no citation-level majority exists AND `top_parent_count == valid_vote_count AND > top_count` (the second guard filters the degenerate "parent equals citation" case). Citation-level strict majority (>50%) explicitly suppresses parent-fallback — the more specific sub-citation is a stronger signal.
+- ✓ Derived-bucket mapping (codified in `_derive_tier` and the module docstring):
+
+  | `agreement_score` | `valid_vote_count` | derived `tier` |
+  |---|---|---|
+  | 1.0 | ≥ 2 | HIGH |
+  | ≥ 0.6 | ≥ 2 | MED |
+  | < 0.6 | ≥ 1 | LOW |
+  | (any) | 0 | SALVAGE (sentinel `agreement_score = -1.0`) |
+
+- ✓ [scripts/tier_ensemble.py](../scripts/tier_ensemble.py) — discovers `{pair}__{model}.jsonl` files by stripping at the last `__`, processes 1+ pairs, writes `data/ensemble/tiered/{pair}.jsonl` atomically (sorted by source_id, tmp-then-replace), logs HIGH/MED/LOW/SALVAGE per-pair + overall.
+- ✓ Tests — 30 tests in [envs/eval/tests/test_tier_ensemble.py](../envs/eval/tests/test_tier_ensemble.py) across 5 classes: parent extraction (5), fuzzy fields (4), bucket boundaries (12 including `test_two_empty_two_agree_is_HIGH_under_fuzzy` pinning the design-change motivation, `test_subclause_split_unanimous_parent_is_HIGH_via_parent_fallback`, `test_majority_at_citation_overrules_parent_fallback`, `test_three_empty_one_dissenting_is_LOW_under_fuzzy`, `test_parse_error_treated_as_missing_vote`, `test_all_parse_error_is_SALVAGE_with_sentinel`), three-model fallback (3), tier_framework_pair (3), TieredPair serialization (1 — roundtrip preserves fuzzy fields).
+
+**Sample compile output (2026-05-28 over all 72 pairs / 35,552 raw rows):**
+
+```
+docker compose run --rm root uv run python scripts/tier_ensemble.py \
+    --raw-dir data/ensemble/raw --out-dir data/ensemble/tiered
+```
+
+Yields **840 HIGH / 1,113 MED / 6,633 LOW / 302 SALVAGE = 8,888 tiered pairs** (one per source clause × framework-pair) at [data/ensemble/tiered/](../data/ensemble/tiered/). Hand-val burden (MED + LOW + SALVAGE = 8,048 rows ≈ 134 h at 1 min/row) is ~13× the original ~10 h projection; HIGH alone already clears the ≥500 gold floor at M2.
+
+**6B+ — Bidirectional cross-check (NEW 2026-05-28; operator-requested mid-MR):**
+
+The 72 framework-pairs cover both directions of every framework pair (e.g. both `gdpr__pdpa_sg` and `pdpa_sg__gdpr`). For each forward tiered row, we look up whether the reverse direction agrees — much stronger correctness signal than either direction alone, and free to compute (all data on disk).
+
+- ✓ [src/daccord/ensemble/bidirectional.py](../src/daccord/ensemble/bidirectional.py) — `BidirectionalStatus = Literal[...]` (7 values); `BidirectionalResult(ValidatedModel)` with `source_id` / `forward_consensus` / `reverse_pair` / `reverse_source_id` / `reverse_consensus` / `reverse_tier` / `reverse_agreement_score` / `status`. `reverse_pair_name(forward_pair)` flips the pair (`gdpr__pdpa_sg`→`pdpa_sg__gdpr`). `build_framework_lookup(framework, raw_dir)` reads one raw file matching `{framework}__*.jsonl` to derive `{normalize(source_citation_id): source_id}` — avoids coupling to `data/clauses/` shape. `compute_bidirectional_for_pair` + `_classify` resolve forward consensus → target framework lookup → reverse `source_id` → reverse `TieredPair` → compare against `normalize_citation_id(fwd.source_citation_id)`.
+- ✓ [scripts/cross_check_ensemble.py](../scripts/cross_check_ensemble.py) — discovers tiered pairs, calls `compute_bidirectional_for_pair`, writes `data/ensemble/bidirectional/{forward_pair}.jsonl` atomically (sorted by source_id), prints per-pair status counts + overall summary + auto-promotable count.
+- ✓ The 7 statuses:
+  - `consistent` — forward `A.cs→B.ct` matches reverse `B.ct→A.cs`. Auto-promotable for MED rows via splits flag.
+  - `inconsistent` — reverse picks a different source clause. Worth hand-val even at HIGH confidence.
+  - `reverse_unknown` — reverse was LOW/SALVAGE; reverse consensus still surfaced as a soft hint.
+  - `missing_reverse_row` — reverse tiered file exists but lacks the resolved source_id row.
+  - `missing_reverse_pair` — entire reverse `{pair}.jsonl` file missing.
+  - `missing_in_registry` — forward consensus citation_id doesn't normalise to any reverse source clause (likely hallucinated).
+  - `no_forward_consensus` — forward row was SALVAGE.
+- ✓ Tests — 14 tests in [tests/test_bidirectional.py](../tests/test_bidirectional.py) across 5 classes: `reverse_pair_name` (1), `TestBuildFrameworkLookup` (2), `TestBidirectionalStatuses` (8 — one per status), `TestNormalisation` (1 — `Section 32` / `§ 32` normalise equal), `TestOverlayLoader` (2).
+
+**2026-05-28 cross-check run across 8,888 tiered pairs:**
+
+```
+docker compose run --rm root uv run python scripts/cross_check_ensemble.py \
+    --tiered-dir data/ensemble/tiered --raw-dir data/ensemble/raw \
+    --out-dir data/ensemble/bidirectional
+```
+
+| forward tier | consistent | inconsistent | reverse_unknown | missing_in_registry |
+|---|---:|---:|---:|---:|
+| HIGH    | **205** | 134  | 496  | 5  |
+| MED     | **87**  | 243  | 781  | 2  |
+| LOW     | 128     | 1501 | 4954 | 50 |
+| SALVAGE | (no_forward_consensus = 302) |  |  |  |
+| **total** | **420** | **1878** | **6231** | **57** |
+
+Derived signals: **87 MED+consistent** auto-promotable to gold (lifts HIGH-only baseline 840→927); **134 HIGH+inconsistent** are the highest-leverage hand-val candidates (HIGH consensus that the reverse direction disagrees with is exactly where the ensemble may be coordinating on a wrong answer); **205 HIGH+consistent** are bidirectionally sanity-checked; **128 LOW+consistent** are MED-promotable but not gold-eligible (too noisy without hand-val).
+
+**6B++ — RAG seat (NEW 2026-05-29; operator-requested as "another module in label generation"):**
+
+A 5th `EnsembleStrategy` peer to the 4 LLM seats in tier 7A. Produces
+`EnsembleCandidate`-shape rows via semantic-similarity retrieval against
+pre-built per-framework target-clause indices. Architecture choice (vs an
+overlay design): keep RAG inside the ensemble naturally so the fuzzy
+classifier weighs all 5 votes uniformly, bidirectional + splits + labeler
+require zero code changes downstream, and the RAG vote is preserved in the
+existing `votes: list[ModelVote]` field on `TieredPair`.
+
+- ✓ Pre-built indices via [envs/eval/scripts/build_target_indices.py](../envs/eval/scripts/build_target_indices.py): one FAISS `IndexFlatIP` over L2-normalised MPNet embeddings per framework (`data/indices/target_clauses/{framework}.{faiss,jsonl}`). Embedder = `paraphrase-multilingual-mpnet-base-v2` (same as tier-12B retrieval baseline; passed M0 tokenizer audit for th/fr/de/en). Skip empty-text clauses (the ~5% `body_recall` gap from tier 5). Idempotent: re-build only when input mtime is newer. New shared builder `build_target_clause_index()` + `TargetClauseIndexEntry` schema at [src/daccord/eval/retrieval_index.py](../src/daccord/eval/retrieval_index.py).
+- ✓ [src/daccord/ensemble/strategies/rag_seat.py](../src/daccord/ensemble/strategies/rag_seat.py) — `RAGSeat` strategy with embedding cache (each source_id embedded once per run despite appearing in 8 target pairs), per-framework index cache, threshold gating (`< threshold` → empty-citation "no analog" vote, parse_error=None; missing index → parse_error="missing_index_for_{framework}"). Same `EnsembleStrategy` Protocol + `append_candidate` + `output_path_for` reuse as the paid-API seats.
+- ✓ New `run-rag` subcommand in [scripts/run_ensemble.py](../scripts/run_ensemble.py). Writes `data/ensemble/raw_local/{pair}__local-rag-mpnet.jsonl` × 72.
+- ✓ **raw_local/ convention**: `data/ensemble/raw/` is the canonical immutable record of paid API calls (per the `strategy.py` docstring). RAG seat output is re-runnable local compute → separate dir. Same per-call `fsync` + `ImmutabilityViolation` writers from `strategy.py` guard within a run; the new dir keeps the paid-API immutability promise intact.
+- ✓ Tier 6B extension at [src/daccord/ensemble/tier.py](../src/daccord/ensemble/tier.py): `tier_framework_pair` accepts `extra_dirs: list[Path] | None = None`. [scripts/tier_ensemble.py](../scripts/tier_ensemble.py) gains a `--raw-local-dir data/ensemble/raw_local` flag (default ON). Backward-compatible: existing callers passing only `raw_dir` still work. Re-running tier 6B with the flag enabled yields **N=5 voting** (4 LLM seats + 1 RAG seat); existing fuzzy mapping table applies unchanged.
+- ✓ Tests (~19 total):
+  - [envs/eval/tests/test_target_index.py](../envs/eval/tests/test_target_index.py) — 7 tests covering build round-trip, empty-clause skip, citation-id normalisation on write, top-1 self-retrieval, empty-input guards, schema roundtrip.
+  - [envs/eval/tests/test_rag_seat.py](../envs/eval/tests/test_rag_seat.py) — 9 tests using a deterministic fake SentenceTransformer (same hash-based pattern as `test_retrieval_client.py`): above-threshold → normalised citation; below-threshold → empty-citation "no analog" vote; missing-index → parse_error row; resume-by-source_id skips completed; embedding cache dedupes by source_id within run; `ImmutabilityViolation` refuses duplicate; constructor validates `top_k` + `threshold`; `models` property; `load_completed_source_ids` round-trip.
+  - [envs/eval/tests/test_tier_ensemble.py](../envs/eval/tests/test_tier_ensemble.py) gains 3 N=5 tests: 4 LLMs + RAG all agree → HIGH unanimous; RAG dissents from 4 LLM consensus → MED with score=0.8; absent `extra_dirs` falls back to N=4 raw-only.
+
+**On-disk artifacts (2026-05-29)**:
+
+- `data/indices/target_clauses/{framework}.{faiss,jsonl}` × 9 (gitignored).
+- `data/ensemble/raw_local/{pair}__local-rag-mpnet.jsonl` × 72 (gitignored; one row per source clause × forward pair; **8,888 candidates total, 0 parse errors**).
+
+**Cost + wall-clock**: ~$0 API spend (CPU-only embed + FAISS lookup). Measured wall-clock ~28 min over all 72 pairs × 8,888 candidates (~3 min/100 candidates after the MPNet weights download). Embedding cache keyed by `source_id` means each source is embedded once per run.
+
+**Architecture: LLM-only fuzzy + RAG as side-info (revised mid-MR 2026-05-29)**
+
+The initial implementation folded RAG into the fuzzy classifier as a 5th equal voter. That caused 4/4 LLM HIGH rows to demote to MED whenever RAG dissented (HIGH 840→434). Operator pushback: **"RAG is more info, not a standard raiser; 4 LLM alignment is high enough."** Architecture revised:
+
+- `agreement_score`, `valid_vote_count`, derived `tier` are computed over LLM seats only (`daccord.ensemble.schema.is_local_seat()` filters out `local-rag-*` model slugs — this also covers any future local seats).
+- The RAG vote is preserved in `TieredPair.votes` for labeler display + audit.
+- Two new derived fields surface the RAG signal as side-info: `rag_concurs: bool` (True iff a local-seat vote matches the LLM consensus) and `rag_vote_citation_id: str` (the local seat's normalized vote).
+- `scripts/build_splits.py` gets `--promote-rag-concurs` flag — analogous to `--promote-bidirectional-consistent`. MED rows with `rag_concurs=True` are auto-promotable; LOW + SALVAGE never auto-promote.
+
+**Tier counts (unchanged from pre-RAG; LLM-only classifier means RAG can't downgrade)**:
+
+| Bucket | Pre-RAG | With RAG side-info |
+|---|---:|---:|
+| HIGH | 840 | 840 |
+| MED | 1,113 | 1,113 |
+| LOW | 6,633 | 6,633 |
+| SALVAGE | 302 | 302 |
+
+**Gold pool growth from independent signals**:
+
+| Strategy | Train | Val | Test | Total |
+|---|---:|---:|---:|---:|
+| HIGH only | 646 | 67 | 127 | **840** |
+| + bidirectional-consistent MED | 717 | 69 | 141 | **927** |
+| + RAG-concurs MED | 725 | 77 | 138 | **940** |
+| + bidirectional + RAG-concurs MED | 778 | 79 | 150 | **1,007** |
+
+Bidirectional + RAG add **+167 net MED rows** to the gold pool (87 bidirectional + 100 RAG; overlap of 20 rows confirmed by both — the strongest evidence subset). Full breakdown + per-tier rag_concurs distribution in [docs/tier7_handoff.md](tier7_handoff.md).
+
+**M4-eval contamination flag (R9 update)**: the RAG seat shares an embedding backbone (paraphrase-multilingual-mpnet-base-v2) with the tier-12B retrieval baseline used as the M4 fine-tune comparator. Because the RAG seat is one vote among five (LLM seats dominate the consensus), the dilution effect on M4 retrieval-vs-fine-tune comparison is much smaller than promoting RAG-only rows to gold would be. No in-MR partition restriction; flag for re-examination after M4 runs — if the retrieval baseline beats fine-tune by a larger margin than pre-MR, that's a contamination signal.
+
+**6C — AWS resource prep (2026-05-26):**
+
+- ✓ [src/daccord/aws/m2.py](../src/daccord/aws/m2.py) — single source of truth: `REGION = "us-east-1"` (only Bedrock region with Llama 4 access as of 2026-05), `PROJECT_TAG = "daccord"`, `ROLE_NAME = "DaccordBedrockBatchService"`, `INLINE_POLICY_NAME = "DaccordS3BatchIO"`, `F9_BEDROCK_MODELS` (Llama 4 Scout / Maverick / Claude Haiku 4.5 / Nova 2 Lite), helpers `bucket_name(account_id)` → `daccord-dev-{account_id}` + `bucket_arn` + `role_arn` + `s3_input_prefix` / `s3_output_prefix`. `resolve_profile(arg_profile)` precedence: arg → `$AWS_PROFILE` → `aws-account.yaml` → fallback `caravan-poc`.
+- ✓ [scripts/aws_setup.sh](../scripts/aws_setup.sh) (144 lines) + [scripts/aws_setup.ps1](../scripts/aws_setup.ps1) (219 lines) — paired creators for bucket + IAM role + inline policy.
+- ✓ [scripts/aws_teardown.sh](../scripts/aws_teardown.sh) (89 lines) + [scripts/aws_teardown.ps1](../scripts/aws_teardown.ps1) (117 lines) — destroys bucket + role; run after M4 if M5 is deferred.
+- ✓ [scripts/check_aws_setup.py](../scripts/check_aws_setup.py) — read-only boto3 verifier: STS caller-identity, S3 bucket head + versioning + `Project=daccord` tag, IAM role trust-policy includes `bedrock.amazonaws.com` + inline policy references the bucket, Bedrock `list_foundation_models` + per-model entitlement probe in `us-east-1`. Exit 0 if all pass, 1 otherwise.
+- ✓ Tests — 24 tests in [tests/test_aws_m2.py](../tests/test_aws_m2.py) covering constants + helper functions + profile resolution (module unit tests; no live AWS).
+
+**Runbook:**
+
+```
+bash scripts/aws_setup.sh                # creates bucket daccord-dev-351090596944 + DaccordBedrockBatchService role
+python scripts/check_aws_setup.py        # verifies 4 checks; user then submits Bedrock model-access form in console
+bash scripts/aws_teardown.sh             # after M4 if M5 deferred
+```
+
+Reuses existing `caravan-poc` admin profile (AWS account `351090596944`, $50/month budget). Tier 14A (IAM user) + 14B (Budgets alarm) + Bedrock model access were pulled forward to M2.
+
+**6D — Google AI Studio billing — DROPPED (2026-05-26):**
+
+Originally part of the M2 prep when the ensemble was Bedrock-only. `docs/google_ai_studio_setup.md` and `scripts/check_google_setup.py` deleted. **Note**: tier 7A Path 2 (executed 2026-05-27) later re-added Gemini 3.1 Flash Lite via paid Tier 2 as the 4th Path-2 seat — but it's a direct paid-API call, not Bedrock-routed. Free-tier `google_gemini` provider stays in config for M0 baselines + M4 eval-judge. Open follow-up (per [docs/tier7_handoff.md](tier7_handoff.md)): migrate `google_gemini` from `caps_requests_per_day` to `caps_usd_per_day` to track paid spend.
+
+**Cost-config additions (2026-05-26 + 2026-05-27):**
+
+- ✓ [costs/config.toml](../costs/config.toml) — `bedrock_batch = 5.0` USD/day cap; Bedrock-batch pricing rows for all 4 F9-E seats (50% off on-demand, all `us-east-1`): Llama 4 Scout `$0.085/$0.34`, Llama 4 Maverick `$0.12/$0.48`, Claude Haiku 4.5 `$0.50/$2.50`, Nova 2 Lite `$0.15/$1.25` (with note that extended thinking must be disabled to avoid `reasoningContent` blocks). 2026-05-27 added Path-2 paid-API pricing: `claude-haiku-4-5` `$1.00/$5.00`, `gpt-5-mini` `$0.25/$2.00`, `Qwen/Qwen3-235B-A22B-Instruct-2507-tput` `$0.20/$0.60`. `google_gemini` RPD cap bumped 1500→150000 for paid Tier 2.
+- ✓ [src/daccord/costs/config.py](../src/daccord/costs/config.py) — `Provider` Literal extended with `"bedrock_batch"` plus local-only `"retrieval"` + `"local_hf"` sentinels (bypass preflight). `_provider_has_exactly_one_cap` validator enforces no provider is in both USD-cap and RPD-cap maps.
+
+**On-disk artifacts produced by tier 6 pipelines (2026-05-28):**
+
+- `data/ensemble/raw/` — 288 files (72 pairs × 4 seats), 35,552 rows (tier-7A input to 6B).
+- `data/ensemble/tiered/` — 72 files, 8,888 rows.
+- `data/ensemble/bidirectional/` — 72 files, status-classified per forward row.
+
+**Verification (all green this MR):**
+
+```
+docker compose run --rm root uv lock --check            # in-sync
+docker compose run --rm root uv run ruff check .        # clean
+docker compose run --rm root uv run ruff format --check .  # clean
+docker compose run --rm root uv run pyright             # 0 errors, 0 warnings
+docker compose run --rm root uv run pytest              # 273 passed (incl. 14 new bidirectional + 7 validated-overlay)
+docker compose run --rm eval uv lock --check            # in-sync
+docker compose run --rm eval uv run pytest              # 124 passed (incl. 30 fuzzy tier_ensemble tests)
+docker compose run --rm root uv run python scripts/tier_ensemble.py
+docker compose run --rm root uv run python scripts/cross_check_ensemble.py
+```
+
+### 9.9 — Tier 7 (ensemble label generation + splits + UI labeler) — **DONE 2026-05-27 → 2026-05-28 (7A + 7B + 7C tooling)**
+
+**Status: ✓ Closed (7A + 7B + 7C tooling + tier 6B++ RAG seat); ⏳ tier 8 + 9 pending operator hand-val.** 7A landed end-to-end 2026-05-27 via Path 2 (paid direct API) producing 35,552 raw candidates at 99.955% success across 72 framework-pairs. 7B (jurisdiction-disjoint splits with bidirectional MED auto-promotion) + 7C (Streamlit labeler with bidirectional-aware queue + validated overlay writer) landed 2026-05-28. The tier 6B++ RAG seat (operator-requested 2026-05-29 as "another module in label generation") adds a 5th, retrieval-based voter to the ensemble — re-tiering with N=5 votes per source clause produces the post-RAG gold pool. Tier 8 (fold hand-val into tiering) + Tier 9 (gold freeze) remain operator-side. Plan file: `~/.claude/plans/7a-spent-most-time-abstract-eagle.md`. Path-comparison record: [docs/7a_path.md](7a_path.md). Hand-off record: [docs/tier7_handoff.md](tier7_handoff.md). RAG seat detail: see §9.8 "6B++".
+
+**7A — Ensemble label generation (Path 2 paid direct API; 2026-05-27):**
+
+Path 1 (Bedrock batch — F9-E Llama 4 Scout + Maverick + Claude Haiku 4.5 + Nova 2 Lite) was preserved as `BedrockBatchStrategy` + `BedrockSyncStrategy` at [src/daccord/ensemble/strategies/bedrock.py](../src/daccord/ensemble/strategies/bedrock.py) but blocked on AWS $0 spend limit. Path 2 (paid direct API across 4 families) was chosen and executed.
+
+- ✓ [src/daccord/ensemble/strategy.py](../src/daccord/ensemble/strategy.py) — `EnsembleStrategy` Protocol + shared resilience helpers: `output_path_for(out_dir, pair, model)`, `load_completed_source_ids` (parse_errors count as completed), `append_candidate` (per-call `flush()` + `os.fsync()` so crashes lose at most one in-flight call), `write_candidates_atomic`, `prune_parse_errors`, `make_error_candidate`. The **canonical raw-data immutability rule** lives in this module's docstring — read it before touching writer code.
+- ✓ [src/daccord/ensemble/prompt.py](../src/daccord/ensemble/prompt.py) — `BatchPrompt` + `model_slug` hoisted from `daccord.aws.batch` (back-compat re-export preserved at the old import path).
+- ✓ [src/daccord/ensemble/strategies/paid_api.py](../src/daccord/ensemble/strategies/paid_api.py) — `PaidAPIStrategy.run_pair()` fans across the 4 seats via `ThreadPoolExecutor` (one worker per seat), per-seat `_run_one_client` with resume-by-source_id and per-call `append_candidate`. Duplicate-model-id guard at construction.
+- ✓ Path-2 seat lineup (declared in `_default_clients()`):
+  - `AnthropicClient(model="claude-haiku-4-5")` — `$1.00/$5.00` per Mtok, 50 RPM Tier-1 (Anthropic OTPM is the binding cap at M=3 parallelism; expect ~10–12% 429s, all recover via `--retry-errors`).
+  - `OpenAIClient(model="gpt-5-mini", reasoning_effort="minimal")` — `$0.25/$2.00`, 500 RPM Tier-1. The `reasoning_effort="minimal"` setting is critical — without it GPT-5-mini burns 64–500+ invisible reasoning tokens before the visible answer (~15 s/call → ~3-5 s/call).
+  - `GeminiClient(model="gemini-3.1-flash-lite")` — `$0.25/$1.50`, paid Tier-2 = 4000 RPM / 150K RPD (env-overridable via `DACCORD_RPM_GOOGLE_GEMINI=4000`).
+  - `TogetherClient(model="Qwen/Qwen3-235B-A22B-Instruct-2507-tput")` — `$0.20/$0.60`, serverless. (Original pick was Llama 4 Maverick FP8; live probe confirmed both Maverick + Scout are dedicated-endpoint-only on Together as of 2026-05.)
+- ✓ Per-provider throttle at [src/daccord/eval/_rpm.py](../src/daccord/eval/_rpm.py) — per-provider `deque` + `threading.Lock`; default RPM table with env-var override `DACCORD_RPM_<PROVIDER>`.
+- ✓ Client implementations at [src/daccord/eval/clients.py](../src/daccord/eval/clients.py) — `AnthropicClient` (tool_use forced-call), `OpenAIClient` (strict json_schema; auto-detects GPT-5 family and sets `max_completion_tokens=2000` + omits unsupported `temperature=0.0`), `TogetherClient` (OpenAI-compatible, base_url `api.together.xyz/v1`), `GeminiClient` (native `google-genai` SDK with `response_schema=<pydantic>`).
+- ✓ [scripts/run_ensemble.py](../scripts/run_ensemble.py) — `run-paid` subcommand with `--smoke`, `--max-clauses-per-pair`, `--framework-pair`, `--dry-run`, `--retry-errors`, `--shard k/N` (for data-parallel runs across host shells).
+
+**Resilience contract — verified live**: survived 1 docker-compose-host timeout at ~60 min (twice — shards 1 and 2 relaunched cleanly), 1 hibernate (laptop suspended mid-run + resumed), 1 Anthropic 50-min credit exhaustion (refilled, retry pass recovered all credit-out failures).
+
+**2026-05-27 execution outcome:**
+
+| Phase | Start | Duration |
+|---|---|---|
+| Primary 3-shard run | 04:50 UTC | ~6 h (with shard 1/2 mid-run relaunches) |
+| `--retry-errors` pass 1 (Anthropic OTPM 429s + credit-out 401s) | 11:21 UTC | ~2 h |
+| `--retry-errors` pass 2 (3 transient 529s) | 13:25 UTC | <2 min |
+
+- **35,552 raw candidates** across 72 framework-pairs × 4 paid-API seats.
+- **99.955% success rate** — 16 known parse_errors, all deterministic context-window overflows on a single source `dpa_2018-215` × {Claude Haiku 4.5, Qwen 3-235B} (215K-token source clause exceeds Claude 200K + Qwen 256K; not retryable without truncating upstream).
+- **Total cost ~$32** (~$27 primary + ~$5 retry passes for Anthropic + OpenAI + Together; Gemini paid spend ~$5 estimated, not yet separately tracked).
+
+Output: `data/ensemble/raw/{framework_pair}__{model}.jsonl` × 288 files. Tests: [tests/test_ensemble_strategy.py](../tests/test_ensemble_strategy.py) (27), [tests/test_paid_api_clients.py](../tests/test_paid_api_clients.py) (11), [tests/test_paid_api_mock_runs.py](../tests/test_paid_api_mock_runs.py) (5), [tests/test_bedrock_batch.py](../tests/test_bedrock_batch.py) (32 — Path-1 preserved), [tests/test_run_ensemble.py](../tests/test_run_ensemble.py) (14).
+
+**Raw-data immutability rule (code-enforced):**
+
+Canonical declaration: [src/daccord/ensemble/strategy.py](../src/daccord/ensemble/strategy.py) module docstring + `ImmutabilityViolation(RuntimeError)` exception. Mirrored in [docs/tier7_handoff.md](tier7_handoff.md) and [docs/7a_path.md](7a_path.md). **A raw row, once written, is immutable per `(file, source_id)`.** Three sanctioned writers enforce this:
+
+1. `append_candidate(path, candidate)` — refuses if `source_id` already exists.
+2. `write_candidates_atomic(path, candidates)` — refuses if any previously-successful row (parse_error is None) would be dropped or replaced.
+3. `prune_parse_errors(path)` — only removes rows where `parse_error is not None`; idempotent (no-op when zero parse_errors).
+
+The only sanctioned mutation is `prune_parse_errors` followed by `append_candidate` of the retry result — used exclusively by `scripts/run_ensemble.py run-paid --retry-errors`. **Future code that reads raw must produce its output in a separate file or directory** (e.g. `data/ensemble/tiered/`, `data/ensemble/bidirectional/`, `data/ensemble/validated/`). Test coverage for each invariant: `test_append_candidate_refuses_duplicate_source_id`, `test_append_candidate_refuses_replacing_parse_error_directly`, `test_write_candidates_atomic_refuses_dropping_successful_row`, `test_write_candidates_atomic_allows_superset_rewrite`, `test_prune_parse_errors_removes_only_error_rows` (all in [tests/test_ensemble_strategy.py](../tests/test_ensemble_strategy.py)).
+
+**7B — Splits script (NEW 2026-05-28):**
+
+- ✓ [scripts/build_splits.py](../scripts/build_splits.py) — argparse CLI. Defaults: `--tiered-dir data/ensemble/tiered`, `--validated-dir data/ensemble/validated`, `--bidirectional-dir data/ensemble/bidirectional`, `--tier-floor HIGH`, `--val-jurisdictions my`, `--test-jurisdictions th,ph`, `--dry-run`. `--promote-bidirectional-consistent` flag auto-includes MED rows with `status="consistent"` (LOW is **not** auto-promoted — too noisy without hand-val).
+- ✓ [src/daccord/ensemble/splits.py](../src/daccord/ensemble/splits.py) — `SplitSummary` (count + jurisdictions + framework counter), `SplitsManifest` (tracks `tiered_input_sha256` + `validated_input_sha256` + `bidirectional_input_sha256` + `promote_bidirectional_consistent` + `tier_floor` + `val_jurisdictions` + `test_jurisdictions` + `topic_disjoint` + `topic_disjoint_todo` + per-split summaries). `build_splits()` is the main builder; `write=False` path supports `--dry-run`. **Per-pair key fix** in `_load_bidirectional_consistent_ids` — composite key `(forward_pair, source_id)` so `gdpr-1` being consistent in `gdpr__pdpa_sg` does NOT auto-promote `gdpr-1` in `gdpr__pdpa_my` (pre-fix code keyed on source_id only and leaked 362 rows on the live 8,888-pair dataset). `_is_gold_eligible` rules: HIGH default-eligible (overlay with empty `chosen_citation_id` excludes); MED via bidirectional consistency in the matching pair OR validated overlay; LOW/SALVAGE require validated overlay.
+- ✓ Tests — 15 tests in [tests/test_build_splits.py](../tests/test_build_splits.py): jurisdiction-disjoint invariant (`test_default_partition_keeps_jurisdictions_disjoint`, `test_overlapping_val_and_test_raises`), tier-floor gating (4 tests), SHA256 stability (2), `--dry-run` no-write, missing-input raises, and the bidirectional-promotion suite (5 including the regression `test_consistent_in_one_pair_does_not_promote_other_pair` that pins the per-pair key fix).
+
+**Numeric outcomes (real data, 2026-05-29 with RAG signal added)**:
+
+```
+docker compose run --rm root uv run python scripts/build_splits.py
+# HIGH-only baseline:                                train=646 val=67 test=127 = 840
+docker compose run --rm root uv run python scripts/build_splits.py \
+    --promote-bidirectional-consistent --tier-floor MED
+# + bidirectional MED auto-promotion:                train=717 val=69 test=141 = 927
+docker compose run --rm root uv run python scripts/build_splits.py \
+    --promote-bidirectional-consistent --promote-rag-concurs --tier-floor MED
+# + RAG-concurs MED auto-promotion (NEW 2026-05-29): train=778 val=79 test=150 = 1,007
+```
+
+The +167 row expansion (840 → 1,007) comes from two **independent** promotion signals: 87 bidirectional-consistent + 100 rag_concurs, with a 20-row overlap (rows confirmed by both — the strongest evidence subset). Zero hand-val required for any of them. Topic-disjoint splits (dev-plan §5 line 195: "breach notification in test, DSR in train") intentionally deferred — the data has no topic tagging today. Manifest records `topic_disjoint: false` + `topic_disjoint_todo` for a future MR.
+
+**7C — UI labeler (Streamlit; NEW 2026-05-28):**
+
+The `consumer/` env pre-existed for tier-12C side-by-side comparison (per [CLAUDE.md](../CLAUDE.md) service table); tier-7C reused the existing service without adding a new env.
+
+- ✓ [src/daccord/ensemble/validated.py](../src/daccord/ensemble/validated.py) — `ValidatedPair(ValidatedModel)` with `chosen_citation_id` (`""` means reviewer-confirmed no-analog), `human_note`, `reviewer`, `reviewed_at`, `tier_at_review`, `agreement_score_at_review`. `append_validation(path, row)` raises `ImmutabilityViolation` (shared from `strategy.py`) on duplicate `source_id` — a reviewed pair is locked; per-call `flush()` + `os.fsync()`. `load_validated_source_ids` + `read_validations` for downstream consumers (splits + labeler queue).
+- ✓ [consumer/labeler/queue.py](../consumer/labeler/queue.py) — pure data plumbing (no Streamlit dep): `SortOrder` literal (`confidence-desc` / `confidence-asc` / `source-id`), `QueuedPair` dataclass (`TieredPair` + `BidirectionalResult | None`), `PairFile` ValidatedModel (per-pair progress with `total` / `reviewed` / `bidirectional_consistent` / `bidirectional_inconsistent`), `list_pair_files`, `build_review_queue` (applies tier_filter, reviewed-source filter, bidirectional_filter, then sorts), `vote_choices(row)` (dedupes by normalized citation_id, sorted by vote count desc; appends "No analog exists in target framework" sentinel), `progress_summary`.
+- ✓ [consumer/labeler/app.py](../consumer/labeler/app.py) — Streamlit reviewer with side-by-side panels for (a) forward model agreement and (b) bidirectional agreement. Defaults skip `consistent` (auto-promotable, no review needed) and surface `inconsistent` first. Configuration env vars: `DACCORD_TIERED_DIR`, `DACCORD_VALIDATED_DIR`, `DACCORD_BIDIRECTIONAL_DIR`, `DACCORD_REVIEWER`.
+- ✓ Tests — 16 tests across two files:
+  - [tests/test_validated_overlay.py](../tests/test_validated_overlay.py) — 7 tests covering append/load roundtrip, duplicate-rejection (including no-analog case), missing-file edge cases, full-field roundtrip.
+  - [consumer/tests/test_labeler_queue.py](../consumer/tests/test_labeler_queue.py) — 9 tests covering tier filter, resume-by-reviewed-id, bidirectional filter (3 modes), sort order (2 modes), `list_pair_files` aggregation, `progress_summary` cross-pair aggregation, `vote_choices` dedupe/order.
+
+**Runbook:**
+
+```
+docker compose run --rm --service-ports consumer uv run streamlit run \
+    labeler/app.py --server.address 0.0.0.0
+# then open http://localhost:8501
+```
+
+**Cross-tab: tier × bidirectional status (all 8,888 tiered pairs, 2026-05-28):**
+
+| forward tier | consistent | inconsistent | reverse_unknown | missing_in_registry |
+|---|---:|---:|---:|---:|
+| HIGH    | **205** | 134  | 496  | 5  |
+| MED     | **87**  | 243  | 781  | 2  |
+| LOW     | 128     | 1501 | 4954 | 50 |
+| SALVAGE | (no_forward_consensus = 302) |  |  |  |
+| **total** | **420** | **1878** | **6231** | **57** |
+
+Suggested operator workflow for next session (per [docs/tier7_handoff.md](tier7_handoff.md)):
+
+1. **Ship the 927-pair gold immediately** (no human review needed) via `scripts/build_splits.py --promote-bidirectional-consistent --tier-floor MED`. Manifest's `bidirectional_input_sha256` records exactly which cross-check version produced the splits.
+2. **Spot-check the 134 HIGH+inconsistent rows** in the Streamlit labeler — highest-leverage human time.
+3. **Hand-val the 243 MED+inconsistent rows** for the next gold expansion.
+4. **Don't bother with LOW or reverse_unknown** unless time allows — signal-to-noise too poor.
+
+**Pending — Tier 8 + Tier 9 (operator hand-val + gold freeze):**
+
+- **Tier 8** — after the operator runs the labeler, re-run splits with the updated validated overlay to include hand-validated MEDs alongside the auto-promoted ones.
+- **Tier 9** — final filter (HIGH + validated/auto-promoted MED) → `data/gold/gold_v1.jsonl`. Currently sitting at **927 with zero hand-val** thanks to bidirectional promotion (the ≥500 dev-plan floor is comfortably cleared). Dataset SHA + jurisdiction-disjoint splits to MLflow per dev-plan M2 DoD.
+
+**Verification (all green this MR):**
+
+```
+docker compose run --rm root uv lock --check            # in-sync
+docker compose run --rm root uv run ruff check .        # clean
+docker compose run --rm root uv run ruff format --check .  # clean (118 files)
+docker compose run --rm root uv run pyright             # 0 errors, 0 warnings
+docker compose run --rm root uv run pytest              # 273 passed
+docker compose run --rm eval uv lock --check            # in-sync
+docker compose run --rm eval uv run pytest              # 124 passed
+docker compose run --rm consumer uv lock --check        # in-sync
+docker compose run --rm consumer uv run pytest          # 9 passed (labeler queue)
+docker compose run --rm root uv run python scripts/tier_ensemble.py
+# → 72 files written, 840 HIGH / 1113 MED / 6633 LOW / 302 SALVAGE
+docker compose run --rm root uv run python scripts/cross_check_ensemble.py
+# → 72 files, 420 consistent / 1878 inconsistent / 6231 reverse_unknown / 302 no_forward
+docker compose run --rm root uv run python scripts/build_splits.py \
+    --promote-bidirectional-consistent --tier-floor MED --dry-run
+# → train=717 val=69 test=141 = 927
 ```
 
 ---

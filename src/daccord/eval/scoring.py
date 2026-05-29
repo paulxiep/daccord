@@ -217,7 +217,7 @@ class GroqJudge:
         # generous ceiling — non-thinking judges still stop early.
         est_out = 2000
         preflight(self.provider, self.model, est_in, est_out)
-        api_throttle()
+        api_throttle(self.provider)
 
         t0 = time.perf_counter()
         try:
@@ -284,7 +284,7 @@ class GeminiJudge:
         est_in = (len(messages.system) + len(messages.user)) // 4
         est_out = 200
         preflight(self.provider, self.model, est_in, est_out)
-        api_throttle()
+        api_throttle(self.provider)
 
         config = types.GenerateContentConfig(
             system_instruction=messages.system,

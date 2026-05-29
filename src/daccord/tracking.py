@@ -21,7 +21,7 @@ from daccord.validation import validated
 DEFAULT_TRACKING_URI = "file:./mlruns"
 DEFAULT_EXPERIMENT_NAME = "daccord-qlora"
 PROJECT_TAG_KEY = "project"
-PROJECT_TAG_VALUE = "d-accord"
+PROJECT_TAG_VALUE = "daccord"
 
 
 @validated
@@ -88,7 +88,7 @@ def log_standard_params(
 
     Must be called inside an active `mlflow.start_run()` context. Logs:
     `run_name`, `git_commit`, `seed`, `dataset_hash` (if not None), and any
-    additional string params in `extra`. Also tags the run `project=d-accord`
+    additional string params in `extra`. Also tags the run `project=daccord`
     so cost-attribution stays aligned with the AWS resource-tag convention.
     """
     mlflow.set_tag(PROJECT_TAG_KEY, PROJECT_TAG_VALUE)

@@ -2,15 +2,20 @@
 
 Adapters:
 
-  - `GroqClient`     — Groq-hosted Llama / Qwen / Gemma (tier 2B)
-  - `GeminiClient`   — Google Gemini via `google-genai` (tier 2B)
-  - `RetrievalClient`— FAISS retrieval baseline (tier 12B; reused at serving)
-  - `LocalHFClient`  — local 4-bit-NF4 Qwen3-8B baseline (tier 3A)
+  - `GroqClient`      — Groq-hosted Llama / Qwen / Gemma (tier 2B)
+  - `GeminiClient`    — Google Gemini via `google-genai` (tier 2B)
+  - `RetrievalClient` — FAISS retrieval baseline (tier 12B; reused at serving)
+  - `LocalHFClient`   — local 4-bit-NF4 Qwen3-8B baseline (tier 3A)
+  - `AnthropicClient` — Claude direct API for Path 2 paid ensemble (tier 7A)
+  - `OpenAIClient`    — GPT-5-mini direct API for Path 2 (tier 7A)
+  - `TogetherClient`  — Llama 4 Maverick (Together-hosted) for Path 2 (tier 7A)
 
-API clients (Groq, Gemini) use the provider's native JSON-schema
-constraint:
-  - Groq:   `response_format={"type": "json_object"}` (+ schema in the prompt)
-  - Gemini: `config.response_schema=<pydantic model>` (first-class)
+API clients use each provider's preferred structured-output mechanism:
+  - Groq:      `response_format={"type": "json_object"}` (+ schema in prompt)
+  - Gemini:    `config.response_json_schema=<pydantic model>` (first-class)
+  - Anthropic: tool_use forced-call (Claude's canonical JSON-shape mechanism)
+  - OpenAI:    `response_format={"type": "json_schema", ...}` (strict)
+  - Together:  OpenAI-compatible `response_format={"type": "json_object"}`
 
 Local clients (Retrieval, LocalHF) bypass `daccord.costs.preflight` /
 `record_call` — they have zero $-cost, and `daily.csv` is the spend log,
@@ -141,7 +146,7 @@ class GroqClient:
         # models still stop at their natural ~200-token completion.
         est_out = 2000
         preflight(self.provider, self.model, est_in, est_out)
-        api_throttle()
+        api_throttle(self.provider)
 
         t0 = time.perf_counter()
         try:
@@ -413,7 +418,7 @@ class GeminiClient:
         est_in = _estimate_tokens(messages)
         est_out = 400
         preflight(self.provider, self.model, est_in, est_out)
-        api_throttle()
+        api_throttle(self.provider)
 
         config = types.GenerateContentConfig(
             system_instruction=messages.system,
@@ -437,6 +442,360 @@ class GeminiClient:
         actual_in = int(getattr(usage, "prompt_token_count", None) or est_in)
         actual_out = int(
             getattr(usage, "candidates_token_count", None) or (len(raw_text) // _CHARS_PER_TOKEN)
+        )
+        record_call(
+            self.provider, self.model, actual_in, actual_out, run_id=run_id, batch_id=batch_id
+        )
+
+        candidate, parse_error = _parse_candidate(raw_text)
+        return ModelResponse(
+            model=self.model,
+            top1=candidate,
+            raw_text=raw_text,
+            input_tokens=actual_in,
+            output_tokens=actual_out,
+            latency_ms=latency_ms,
+            parse_error=parse_error,
+        )
+
+
+class AnthropicClient:
+    """Adapter for Anthropic Claude direct API (Path 2 paid ensemble seat 1).
+
+    Default model: `claude-haiku-4-5` ($1.00/M in, $5.00/M out, Tier 1 50 RPM).
+    Uses Anthropic's canonical tool-use mechanism for structured output:
+    we declare a `record_citation_candidate` tool whose input_schema matches
+    `CitationCandidate`, and force the model to call it via `tool_choice`.
+    This is more reliable than prompt-only JSON discipline on long
+    registry-pinned prompts.
+
+    Provider cap: per-day USD budget enforced by `daccord.costs.preflight`;
+    per-minute RPM enforced by `daccord.eval._rpm.api_throttle("anthropic")`
+    (default 45 RPM, overridable via `DACCORD_RPM_ANTHROPIC` env var when
+    auto-tier-up promotes the account to Tier 2's 1000 RPM).
+    """
+
+    provider: Provider = "anthropic"
+
+    @validated
+    def __init__(self, model: str = "claude-haiku-4-5") -> None:
+        try:
+            from anthropic import Anthropic  # type: ignore[import-not-found]
+        except ImportError as exc:  # pragma: no cover — dep is pinned
+            raise RuntimeError("anthropic SDK not installed (uv sync)") from exc
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise RuntimeError("ANTHROPIC_API_KEY not set — see .env.example")
+        self.model = model
+        # max_retries=3 (SDK default is 2). At M=3 data-parallel shards we
+        # push Anthropic's Tier-1 50 RPM cap to ~54 RPM; the SDK retries 429s
+        # honoring `retry-after`, so ~7% of calls take an extra ~5-30s but
+        # land successfully. parse_error only triggers on persistent failures.
+        self._client = Anthropic(api_key=api_key, max_retries=3)
+
+    @validated
+    def generate(self, messages: PromptMessages, *, run_id: str, batch_id: str) -> ModelResponse:
+        from anthropic import (  # type: ignore[import-not-found]
+            APIError,
+            APITimeoutError,
+        )
+
+        est_in = _estimate_tokens(messages)
+        est_out = 400
+        preflight(self.provider, self.model, est_in, est_out)
+        api_throttle(self.provider)
+
+        tool_def = {
+            "name": "record_citation_candidate",
+            "description": "Record the citation_id mapping for the source clause.",
+            "input_schema": _CANDIDATE_JSON_SCHEMA,
+        }
+
+        t0 = time.perf_counter()
+        try:
+            resp = self._client.messages.create(
+                model=self.model,
+                system=messages.system,
+                messages=[{"role": "user", "content": messages.user}],
+                # Anthropic SDK types `tools` as a strict TypedDict union;
+                # the runtime accepts a plain dict with the same keys.
+                tools=[tool_def],  # type: ignore[list-item]
+                tool_choice={"type": "tool", "name": "record_citation_candidate"},
+                max_tokens=est_out,
+                temperature=0.0,
+            )
+        except (APIError, APITimeoutError) as exc:
+            latency_ms = (time.perf_counter() - t0) * 1000.0
+            return ModelResponse(
+                model=self.model,
+                top1=None,
+                raw_text="",
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=latency_ms,
+                parse_error=f"anthropic api error: {type(exc).__name__}: {exc}",
+            )
+        latency_ms = (time.perf_counter() - t0) * 1000.0
+
+        # Forced tool_use returns one content block of type=tool_use with
+        # the structured input dict. If the model went off-script (rare with
+        # forced tool_choice), surface a parse_error.
+        tool_input: dict[str, Any] | None = None
+        raw_text_chunks: list[str] = []
+        for block in resp.content:
+            block_type = getattr(block, "type", None)
+            if block_type == "tool_use":
+                tool_input = dict(getattr(block, "input", {}) or {})
+            elif block_type == "text":
+                raw_text_chunks.append(str(getattr(block, "text", "")))
+        raw_text = json.dumps(tool_input) if tool_input is not None else "\n".join(raw_text_chunks)
+
+        usage = getattr(resp, "usage", None)
+        actual_in = int(getattr(usage, "input_tokens", None) or est_in)
+        actual_out = int(
+            getattr(usage, "output_tokens", None) or (len(raw_text) // _CHARS_PER_TOKEN)
+        )
+        record_call(
+            self.provider, self.model, actual_in, actual_out, run_id=run_id, batch_id=batch_id
+        )
+
+        if tool_input is None:
+            return ModelResponse(
+                model=self.model,
+                top1=None,
+                raw_text=raw_text,
+                input_tokens=actual_in,
+                output_tokens=actual_out,
+                latency_ms=latency_ms,
+                parse_error="anthropic returned no tool_use block (forced choice failed)",
+            )
+
+        try:
+            candidate = CitationCandidate.model_validate(tool_input)
+            return ModelResponse(
+                model=self.model,
+                top1=candidate,
+                raw_text=raw_text,
+                input_tokens=actual_in,
+                output_tokens=actual_out,
+                latency_ms=latency_ms,
+            )
+        except Exception as exc:
+            return ModelResponse(
+                model=self.model,
+                top1=None,
+                raw_text=raw_text,
+                input_tokens=actual_in,
+                output_tokens=actual_out,
+                latency_ms=latency_ms,
+                parse_error=f"anthropic tool_input schema validation: {exc}",
+            )
+
+
+class OpenAIClient:
+    """Adapter for OpenAI direct API (Path 2 paid ensemble seat 2).
+
+    Default model: `gpt-5-mini` ($0.25/M in, $2.00/M out, Tier 1 500 RPM).
+    Uses OpenAI's `response_format={"type": "json_schema", "strict": True}`
+    for structured output — strict mode forces schema conformance at
+    decode time, eliminating most JSON parse failures.
+    """
+
+    provider: Provider = "openai"
+
+    @validated
+    def __init__(self, model: str = "gpt-5-mini") -> None:
+        try:
+            from openai import OpenAI  # type: ignore[import-not-found]
+        except ImportError as exc:  # pragma: no cover — dep is pinned
+            raise RuntimeError("openai SDK not installed (uv sync)") from exc
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY not set — see .env.example")
+        self.model = model
+        # max_retries=3 — matches AnthropicClient. OpenAI Tier-1 500 RPM is
+        # comfortably above the M=3-shard load (~60 RPM) so 429s are rare,
+        # but the extra retry covers transient 5xx during our 3 h run.
+        self._client = OpenAI(api_key=api_key, max_retries=3)
+
+    def _is_gpt5_family(self) -> bool:
+        """GPT-5-family models reject custom `temperature` (only default 1.0).
+
+        Detect by model-ID prefix so the same client serves older GPT-4o
+        deployments (which DO accept temperature=0.0) without a code change.
+        """
+        return self.model.startswith(("gpt-5", "o1", "o3", "o4"))
+
+    @validated
+    def generate(self, messages: PromptMessages, *, run_id: str, batch_id: str) -> ModelResponse:
+        from openai import APIError, APITimeoutError  # type: ignore[import-not-found]
+
+        est_in = _estimate_tokens(messages)
+        # GPT-5 family bills `reasoning_tokens` against the completion budget
+        # AND emits them invisibly before the visible answer. At 400 tokens
+        # the model frequently spends the whole budget on reasoning and emits
+        # zero visible content (parse_error: "json decode at char 0"). 2000
+        # matches the Groq thinking-model budget elsewhere in this file and
+        # leaves comfortable headroom for both reasoning + the ~150-token
+        # CitationCandidate JSON object.
+        est_out = 2000 if self._is_gpt5_family() else 400
+        preflight(self.provider, self.model, est_in, est_out)
+        api_throttle(self.provider)
+
+        # `strict: True` requires `additionalProperties: false` in the schema.
+        # We extend the shared `_CANDIDATE_JSON_SCHEMA` rather than mutate it
+        # so other clients keep their existing schema reference.
+        strict_schema = {**_CANDIDATE_JSON_SCHEMA, "additionalProperties": False}
+
+        # GPT-5 family rejects non-default temperature with a 400. The OpenAI
+        # API only accepts the default (1) for these reasoning-tuned models;
+        # passing 0.0 returns "'temperature' does not support 0.0". For
+        # determinism we rely on the JSON-schema-strict output mode + the
+        # registry-constrained prompt, not on temperature.
+        request_kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": messages.system},
+                {"role": "user", "content": messages.user},
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "citation_candidate",
+                    "schema": strict_schema,
+                    "strict": True,
+                },
+            },
+            "max_completion_tokens": est_out,
+        }
+        if self._is_gpt5_family():
+            # GPT-5 reasoning tokens dominate per-call latency (~15s/call at
+            # default "medium" effort, vs ~3-4s for the other Path-2 seats).
+            # "minimal" cuts the reasoning budget hard — observed latency
+            # drops to ~3-5s on regulatory-clause prompts, in line with the
+            # other seats. We accept slightly lower reasoning quality for
+            # the labeling task (the registry-constrained prompt + strict
+            # JSON schema do most of the heavy lifting; the model just has
+            # to pick from ~100 candidate citation_ids).
+            request_kwargs["reasoning_effort"] = "minimal"
+        else:
+            request_kwargs["temperature"] = 0.0
+
+        t0 = time.perf_counter()
+        try:
+            resp = self._client.chat.completions.create(**request_kwargs)
+        except (APIError, APITimeoutError) as exc:
+            latency_ms = (time.perf_counter() - t0) * 1000.0
+            return ModelResponse(
+                model=self.model,
+                top1=None,
+                raw_text="",
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=latency_ms,
+                parse_error=f"openai api error: {type(exc).__name__}: {exc}",
+            )
+        latency_ms = (time.perf_counter() - t0) * 1000.0
+
+        raw_text = resp.choices[0].message.content or ""
+        usage = resp.usage
+        actual_in = int(getattr(usage, "prompt_tokens", None) or est_in)
+        actual_out = int(
+            getattr(usage, "completion_tokens", None) or (len(raw_text) // _CHARS_PER_TOKEN)
+        )
+        record_call(
+            self.provider, self.model, actual_in, actual_out, run_id=run_id, batch_id=batch_id
+        )
+
+        candidate, parse_error = _parse_candidate(raw_text)
+        return ModelResponse(
+            model=self.model,
+            top1=candidate,
+            raw_text=raw_text,
+            input_tokens=actual_in,
+            output_tokens=actual_out,
+            latency_ms=latency_ms,
+            parse_error=parse_error,
+        )
+
+
+class TogetherClient:
+    """Adapter for Together.ai direct API (Path 2 paid ensemble seat 4).
+
+    Default model: `Qwen/Qwen3-235B-A22B-Instruct-2507-tput`
+    ($0.20/M in, $0.60/M out). Confirmed serverless via the live model
+    catalog (Llama 4 Maverick/Scout are dedicated-endpoint-only on
+    Together as of 2026-05). Qwen 3 is 2025+ generation (235B-param MoE
+    with 22B active), Alibaba-family — fourth distinct family in the
+    Path-2 ensemble alongside Anthropic / OpenAI / Google.
+
+    Together speaks OpenAI-compatible API so we use the `openai` SDK
+    with a custom `base_url`. Together is concurrency-based rather than
+    RPM-based — we still throttle at 600 RPM in `_rpm.py` to keep this
+    one provider from monopolising the parallel pool.
+    """
+
+    provider: Provider = "together"
+
+    @validated
+    def __init__(
+        self,
+        model: str = "Qwen/Qwen3-235B-A22B-Instruct-2507-tput",
+        base_url: str = "https://api.together.xyz/v1",
+    ) -> None:
+        try:
+            from openai import OpenAI  # type: ignore[import-not-found]
+        except ImportError as exc:  # pragma: no cover — dep is pinned
+            raise RuntimeError("openai SDK not installed (uv sync)") from exc
+        api_key = os.environ.get("TOGETHER_API_KEY")
+        if not api_key:
+            raise RuntimeError("TOGETHER_API_KEY not set — see .env.example")
+        self.model = model
+        # max_retries=3 — same pattern as Anthropic/OpenAI clients. Together's
+        # dynamic-concurrency model rarely returns 429s but transient 5xx
+        # during long runs (e.g. cold-start on the serverless Qwen pool)
+        # benefit from a retry.
+        self._client = OpenAI(api_key=api_key, base_url=base_url, max_retries=3)
+
+    @validated
+    def generate(self, messages: PromptMessages, *, run_id: str, batch_id: str) -> ModelResponse:
+        from openai import APIError, APITimeoutError  # type: ignore[import-not-found]
+
+        est_in = _estimate_tokens(messages)
+        est_out = 400
+        preflight(self.provider, self.model, est_in, est_out)
+        api_throttle(self.provider)
+
+        t0 = time.perf_counter()
+        try:
+            resp = self._client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": messages.system},
+                    {"role": "user", "content": messages.user},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.0,
+                max_tokens=est_out,
+            )
+        except (APIError, APITimeoutError) as exc:
+            latency_ms = (time.perf_counter() - t0) * 1000.0
+            return ModelResponse(
+                model=self.model,
+                top1=None,
+                raw_text="",
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=latency_ms,
+                parse_error=f"together api error: {type(exc).__name__}: {exc}",
+            )
+        latency_ms = (time.perf_counter() - t0) * 1000.0
+
+        raw_text = resp.choices[0].message.content or ""
+        usage = resp.usage
+        actual_in = int(getattr(usage, "prompt_tokens", None) or est_in)
+        actual_out = int(
+            getattr(usage, "completion_tokens", None) or (len(raw_text) // _CHARS_PER_TOKEN)
         )
         record_call(
             self.provider, self.model, actual_in, actual_out, run_id=run_id, batch_id=batch_id

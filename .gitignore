@@ -22,6 +22,12 @@ dist/
 .env
 .env.local
 *.secret
+# AWS — account-specific config gitignored; share aws-account.yaml.sample
+# instead. Per-setup outputs and raw access keys never committed.
+/aws-account.yaml
+aws-credentials*
+*.access_keys*
+/data/aws_*
 
 # MLflow tracking
 mlruns/

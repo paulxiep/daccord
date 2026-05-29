@@ -1,6 +1,6 @@
-"""On-disk schema for tier-5 citation registries.
+"""On-disk schema for tier-5 citation registries + tier-7A clause bodies.
 
-Two artifacts per run:
+Three artifacts per run:
 
   - `data/registry/<framework_id>.json` — one `FrameworkRegistry` per framework
     family (9 files for the MVP scope). Contains the canonical citation IDs
@@ -12,6 +12,13 @@ Two artifacts per run:
     partial-run inspection is straightforward. The manifest carries the
     per-framework summary metrics (count, density, toy-gold recall) the M1
     gate is checked against.
+  - `data/clauses/<framework_id>.json` — one `FrameworkClauses` per framework.
+    Companion of `FrameworkRegistry` that adds clause body text (the prose
+    under each section heading) so tier-7A can build ensemble prompts whose
+    `source_mechanism` field is real regulatory text, not just a citation ID.
+    Body recall < 1.0 is expected (Marker occasionally drops headings; some
+    section IDs only appear as cross-refs in body text). `body_recall` in
+    the file tracks this empirically.
 
 Canonical-ID contract: every `citation_id` is the output of
 `daccord.eval.scoring.normalize_citation_id` applied to the raw heading text.
@@ -148,3 +155,54 @@ def write_registry(path: Path, registry: FrameworkRegistry) -> None:
 def read_registry(path: Path) -> FrameworkRegistry:
     """Load a framework registry JSON; raise FileNotFoundError if missing."""
     return FrameworkRegistry.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+class FrameworkClauses(ValidatedModel):
+    """One framework's clause bodies — the file at data/clauses/<id>.json.
+
+    `clauses` is a dict from canonical citation_id (same key space as
+    `FrameworkRegistry.citation_ids`) to the prose body text under that
+    section heading in the parsed markdown. Keys are a subset of the
+    registry's citation_ids: any citation whose heading Marker dropped (or
+    that only appears as a body cross-ref) is absent. `body_recall` records
+    `len(clauses) / FrameworkRegistry.citation_count` so downstream can see
+    coverage at a glance.
+
+    Same byte-identical-on-rerun contract as `FrameworkRegistry`: no
+    timestamps, deterministic dict ordering (sorted by `sort_key`).
+    """
+
+    framework: str
+    jurisdiction: str
+    clauses: dict[str, str]
+    body_recall: float
+    missing_citation_ids: list[str]
+    source_documents: list[str]
+    source_sha256: list[str]
+    extractor_version: str
+
+
+@validated
+def write_clauses(path: Path, clauses: FrameworkClauses) -> None:
+    """Atomic-write `clauses` to `path` as pretty-printed JSON.
+
+    Same indent / encoding / atomicity contract as `write_registry`."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = clauses.model_dump(mode="json")
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=str(path.parent),
+        delete=False,
+        suffix=".json.tmp",
+    ) as tmp:
+        json.dump(payload, tmp, indent=2, ensure_ascii=False, sort_keys=False)
+        tmp.write("\n")
+        tmp_name = tmp.name
+    Path(tmp_name).replace(path)
+
+
+@validated
+def read_clauses(path: Path) -> FrameworkClauses:
+    """Load a framework clauses JSON; raise FileNotFoundError if missing."""
+    return FrameworkClauses.model_validate_json(path.read_text(encoding="utf-8"))

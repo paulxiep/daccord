@@ -31,7 +31,7 @@ One experiment `daccord-eval`. Each `run_eval` invocation produces a parent run 
 ```
 experiment: daccord-eval
 └── parent run: "baseline-toy-YYYY-MM-DD"
-    tags: project=d-accord, gate=M0, prompt_variant=..., judge_model=...
+    tags: project=daccord, gate=M0, prompt_variant=..., judge_model=...
     params: dataset_hash, git_commit, seed, judge_model, n_gold_pairs, n_generators
     artifact: <output_csv>
     │

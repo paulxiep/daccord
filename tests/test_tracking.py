@@ -58,7 +58,7 @@ def test_get_git_commit_respects_short_arg() -> None:
 
 
 def test_compute_file_sha256_matches_hashlib(tmp_path: Path) -> None:
-    payload = b"d-accord reproducibility contract" * 1000
+    payload = b"daccord reproducibility contract" * 1000
     f = tmp_path / "adapter.bin"
     f.write_bytes(payload)
     assert compute_file_sha256(f) == hashlib.sha256(payload).hexdigest()

@@ -6,16 +6,32 @@ warning_threshold_usd = 25.0           # R7 early-warning: any provider >= this 
 consecutive_days_for_alert = 2         # ...this many consecutive days fires the alert
 
 [caps_usd_per_day]
-# Paid providers kept for paid-spill fallback only; Phase 1 runs on free-tier OSS.
+# Phase 1 paid providers used by the Path 2 paid-API ensemble (tier 7A).
+# Scope A worst-case per-day: Anthropic ~$15, OpenAI ~$6, Together ~$3,
+# Gemini paid ~$5 (under USD cap; free-tier RPD entry stays for non-paid use).
 anthropic = 30.0
 openai = 20.0
 together = 15.0
+# Tier 6+ paid provider for the M2 cloud-batch ensemble (Bedrock-only F9-E
+# variant, region us-east-1): 4 seats on Bedrock — Llama 4 Scout + Llama 4
+# Maverick + Claude Haiku 4.5 + Amazon Nova 2 Lite. Mid-scope expected M2
+# spend ≈ $3.75, so $5/day is a 30% safety margin. Tier 14C (M5 teardown)
+# reuses the same cap. M2 batch runs in us-east-1 (only region with Llama 4
+# access); M5 SageMaker stays in ap-southeast-1 (low RTT to Thailand for
+# the live demo).
+bedrock_batch = 5.0
 
 [caps_requests_per_day]
 # Free-tier providers (RPD = requests-per-day). Verify current quotas at run time
 # against the provider's published free-tier limits before kicking off tier 7A.
 groq = 14400
-google_gemini = 1500
+# Operator paid-tier quota on this account is 4000 RPM / 150K RPD (verified
+# in AI Studio dashboard 2026-05-27). Cap left at the paid-tier RPD so the
+# tier-7A Path 2 ensemble can land all ~8K Scope A Gemini calls without the
+# preflight refusing mid-run. Free-tier operators should drop this back to
+# 1500 (the free-tier RPD) or override at call time. Per-minute throttle
+# stays env-overridable via DACCORD_RPM_GOOGLE_GEMINI.
+google_gemini = 150000
 # Cerebras free tier is token-based, not RPD-based: 1M tokens/day + 5 RPM + 30K TPM
 # (verified 2026-05-25 from https://inference-docs.cerebras.ai/support/rate-limits).
 # At ~1k tokens/call (chain-of-thought ensemble prompts) the TPD cap dominates:
@@ -41,6 +57,12 @@ output_per_mtok = 15.00
 input_per_mtok = 0.80
 output_per_mtok = 4.00
 
+# Path 2 paid-API ensemble (tier 7A) — 2025+ generation seats.
+# Pricing verified May 2026 via platform.claude.com/docs/en/about-claude/pricing.
+[pricing.anthropic."claude-haiku-4-5"]
+input_per_mtok = 1.00
+output_per_mtok = 5.00
+
 [pricing.openai."gpt-4o"]
 input_per_mtok = 2.50
 output_per_mtok = 10.00
@@ -49,6 +71,46 @@ output_per_mtok = 10.00
 input_per_mtok = 0.15
 output_per_mtok = 0.60
 
+# Path 2 paid-API ensemble (tier 7A). $0.25/$2.00 per developers.openai.com/api/docs/models/gpt-5-mini.
+[pricing.openai."gpt-5-mini"]
+input_per_mtok = 0.25
+output_per_mtok = 2.00
+
 [pricing.together."Qwen/Qwen2.5-72B-Instruct-Turbo"]
 input_per_mtok = 1.20
 output_per_mtok = 1.20
+
+# Path 2 paid-API ensemble (tier 7A). $0.20/$0.60 per Together /v1/models pricing
+# field (verified live 2026-05-27). Llama 4 Maverick FP8 was the original pick
+# but it's dedicated-endpoint-only on Together as of 2026-05 — Qwen 3-235B-A22B
+# Instruct (2025-07 release) is the serverless 4th-family seat.
+[pricing.together."Qwen/Qwen3-235B-A22B-Instruct-2507-tput"]
+input_per_mtok = 0.20
+output_per_mtok = 0.60
+
+# Bedrock batch pricing (50% off on-demand). Region: us-east-1 (verified
+# 2026-05-26). F9-E ensemble seats use US Geo CRIS for Llama 4 (`us.` prefix)
+# and the base model IDs for Anthropic + Nova 2 Lite (already region-resident).
+# Model IDs below are the BASE IDs as logged by Bedrock — the runtime client
+# adds `us.` prefix at invocation time for Llama 4. Cross-region inference
+# adds ~10% to base pricing; not modelled separately here since the impact
+# is small (+$0.04 on a $3.75 run).
+[pricing.bedrock_batch."meta.llama4-scout-17b-instruct-v1:0"]
+input_per_mtok = 0.085
+output_per_mtok = 0.34
+
+[pricing.bedrock_batch."meta.llama4-maverick-17b-instruct-v1:0"]
+input_per_mtok = 0.12
+output_per_mtok = 0.48
+
+[pricing.bedrock_batch."anthropic.claude-haiku-4-5-20251001-v1:0"]
+input_per_mtok = 0.50
+output_per_mtok = 2.50
+
+# Nova 2 Lite (released 2025-12-02) — reasoning model; extended thinking
+# MUST be disabled in the inference config to avoid `reasoningContent` blocks
+# in batch output (the ensemble JSON schema can't parse those). Per-seat
+# mid-scope batch cost ≈ $0.90 (1.5M in × $0.15 + 0.54M out × $1.25).
+[pricing.bedrock_batch."amazon.nova-2-lite-v1:0"]
+input_per_mtok = 0.15
+output_per_mtok = 1.25
