@@ -6,7 +6,43 @@ implements `EnsembleStrategy.run_pair()` and writes
 `data/ensemble/raw/{framework_pair}__{model_slug}.jsonl` rows that tier 6B
 consumes unchanged.
 
+================================================================================
+## RAW-DATA IMMUTABILITY RULE — read this before touching writer code
+================================================================================
+
+The `data/ensemble/raw/*.jsonl` files are **the canonical record** of every
+paid API call we've made. Tier 6B, fuzzy labelling, tier-8 hand-validation
+review, tier-9 gold freeze, and tier-13 eval all read from these files and
+should produce derivative artifacts under different directories (e.g.
+`data/ensemble/tiered/`, `data/ensemble/gold/`, etc.) — never modify raw.
+
+**A raw row, once written, is immutable. The only sanctioned mutation is
+`prune_parse_errors` (drops parse_error rows; never touches successful
+rows), used by `--retry-errors`, followed by `append_candidate` of the
+retry result.** All three mutators enforce this contract:
+
+  - `append_candidate(path, candidate)` — refuses if a row for that
+    `source_id` already exists in `path` → `ImmutabilityViolation`.
+  - `write_candidates_atomic(path, candidates)` — refuses if any
+    previously-successful row (parse_error is None) would be dropped →
+    `ImmutabilityViolation`.
+  - `prune_parse_errors(path)` — only removes rows where parse_error is
+    set; the rewrite goes through `write_candidates_atomic` which itself
+    refuses to drop a successful row (double-defense).
+
+Nothing else is allowed to touch a written row. Future code that reads
+raw must produce its output in a separate file/directory. If a future
+session needs to invalidate a raw row (e.g. corrected prompt), the
+correct pattern is to write an overlay layer that downstream consumers
+merge in — never edit raw.
+
+Operational signal: every row in raw has `parse_error: null` (successful)
+or `parse_error: "<message>"` (failed; eligible for `--retry-errors`).
+There are no other states.
+
+================================================================================
 ## Resilience contract — shared by all strategies
+================================================================================
 
 Strategies that emit candidates per call (vs Bedrock batch which lands one
 file per pair) use these helpers to make every run resumable:
@@ -99,6 +135,18 @@ def load_completed_source_ids(path: Path) -> set[str]:
     return {c.source_id for c in read_candidates_jsonl(path)}
 
 
+class ImmutabilityViolation(RuntimeError):
+    """Raised when a writer is asked to modify an already-written row.
+
+    The raw-ensemble JSONL contract is **write-once per (file, source_id)**:
+    a row, once on disk, is immutable. The only sanctioned mutation is
+    `prune_parse_errors` (drops parse_error rows; never touches successful
+    rows), followed by `append_candidate` of the retry result. Any other
+    mutation — accidental double-append, atomic-rewrite that drops a
+    successful row, retry-replacing-a-successful-row — raises this.
+    """
+
+
 @validated
 def append_candidate(path: Path, candidate: EnsembleCandidate) -> None:
     """Append one `EnsembleCandidate` row to `path` durably.
@@ -107,8 +155,21 @@ def append_candidate(path: Path, candidate: EnsembleCandidate) -> None:
     `os.fsync()` so the row is on the disk's storage layer before we return.
     Crashes after this point cannot lose the row.
 
+    **Immutability invariant**: refuses if a row for `candidate.source_id`
+    already exists in `path`. The sanctioned way to replace a stale
+    parse_error row is `prune_parse_errors(path)` first — that drops the
+    parse_error row, after which this append succeeds.
+
     Path's parent is created on first call.
     """
+    if path.exists():
+        existing_ids = load_completed_source_ids(path)
+        if candidate.source_id in existing_ids:
+            raise ImmutabilityViolation(
+                f"refusing to append duplicate source_id={candidate.source_id!r} to "
+                f"{path.name}; call prune_parse_errors first to remove a stale "
+                f"parse_error row, or check the resume-by-source_id filter"
+            )
     path.parent.mkdir(parents=True, exist_ok=True)
     line = candidate.model_dump_json() + "\n"
     with path.open("a", encoding="utf-8") as f:
@@ -146,10 +207,30 @@ def write_candidates_atomic(path: Path, candidates: list[EnsembleCandidate]) -> 
     """Atomic full-file write (temp + replace) sorted by `source_id`.
 
     Used by Path 1 Bedrock-batch where all candidates land together at
-    download-and-parse time, and by tests that need byte-identical rewrites.
-    Per-call append (`append_candidate`) is the resilient path; this one
-    is for "I have the whole list and want it sorted on disk."
+    download-and-parse time, by `prune_parse_errors`, and by tests that
+    need byte-identical rewrites. Per-call append (`append_candidate`)
+    is the resilient primary path; this one is for "I have the whole
+    list and want it sorted on disk."
+
+    **Immutability invariant**: refuses if any previously-successful row
+    (parse_error is None) would be dropped or replaced. Compares the
+    set of successful source_ids in the existing file against the same
+    set in `candidates`; if the existing set is not a subset of the new
+    set, raises `ImmutabilityViolation`. This catches accidental
+    overwrites — a successful row, once written, is permanent.
     """
+    if path.exists():
+        existing_success_ids = {
+            c.source_id for c in read_candidates_jsonl(path) if c.parse_error is None
+        }
+        new_success_ids = {c.source_id for c in candidates if c.parse_error is None}
+        lost = existing_success_ids - new_success_ids
+        if lost:
+            raise ImmutabilityViolation(
+                f"refusing to rewrite {path.name}: would drop or replace successful "
+                f"row(s) for source_ids={sorted(lost)[:10]}"
+                f"{' (+ more)' if len(lost) > 10 else ''}; successful rows are immutable"
+            )
     sorted_rows = sorted(candidates, key=lambda c: c.source_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
@@ -171,10 +252,13 @@ def prune_parse_errors(path: Path) -> int:
     """Rewrite `path` keeping only `parse_error is None` rows. Returns the
     number of parse_error rows removed.
 
+    **The ONLY sanctioned way to mutate a previously-written raw row.**
     Used by the `--retry-errors` resume path: scrubbing parse_error rows
     before computing `load_completed_source_ids` means the next resume
     re-calls every previously-failed source_id. Successful rows stay
-    intact so a retry never duplicates work.
+    intact so a retry never duplicates work — guaranteed by both the
+    keep-filter here AND by `write_candidates_atomic`'s immutability
+    invariant (it refuses to drop any successful row, double-defense).
 
     Idempotent: a path with zero parse_error rows is a no-op (no file
     rewrite, no fsync); returns 0.

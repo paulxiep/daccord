@@ -60,6 +60,8 @@ DEFAULT_REGISTRY_DIR = REPO_ROOT / "data" / "registry"
 DEFAULT_CLAUSES_DIR = REPO_ROOT / "data" / "clauses"
 DEFAULT_TOY_GOLD = REPO_ROOT / "data" / "gold" / "toy_v1.jsonl"
 DEFAULT_RAW_DIR = REPO_ROOT / "data" / "ensemble" / "raw"
+DEFAULT_RAW_LOCAL_DIR = REPO_ROOT / "data" / "ensemble" / "raw_local"
+DEFAULT_TARGET_INDICES_DIR = REPO_ROOT / "data" / "indices" / "target_clauses"
 JOBS_LEDGER = REPO_ROOT / "data" / "ensemble" / "jobs.jsonl"
 SMOKE_JOBS_LEDGER = REPO_ROOT / "data" / "ensemble" / "smoke-jobs.jsonl"
 
@@ -848,9 +850,7 @@ def parse_shard(shard_str: str | None) -> tuple[int, int] | None:
         k_str, n_str = shard_str.split("/", 1)
         k, n = int(k_str), int(n_str)
     except (ValueError, AttributeError) as exc:
-        raise SystemExit(
-            f"--shard must be 'k/N' (e.g. '0/2', '1/2'); got: {shard_str!r}"
-        ) from exc
+        raise SystemExit(f"--shard must be 'k/N' (e.g. '0/2', '1/2'); got: {shard_str!r}") from exc
     if n <= 0 or k < 0 or k >= n:
         raise SystemExit(f"--shard k/N requires 0 <= k < N (got {k}/{n})")
     return (k, n)
@@ -987,6 +987,128 @@ def cmd_run_paid(args: argparse.Namespace) -> int:
         total_errors,
         total_resumed,
     )
+    return 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tier-6B++ subcommand — `run-rag`: 5th-seat semantic-retrieval ensemble.
+# Reads pre-built per-framework target-clause indices (from
+# envs/eval/scripts/build_target_indices.py), emits EnsembleCandidate-shape
+# rows to data/ensemble/raw_local/. Tier 6B globs both raw/ + raw_local/
+# so the fuzzy classifier picks up 5 votes per source clause.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def cmd_run_rag(args: argparse.Namespace) -> int:
+    """Tier-6B++ entry: RAGSeat across all framework pairs.
+
+    Cost: ~$0 (CPU-only embed + FAISS lookup). The seat is a single producer
+    so no `--shard` flag — the bottleneck is sequential embedding of source
+    clauses, and the per-source embedding cache means each source is embedded
+    once per run even though it appears in 8 forward pairs.
+
+    Resume contract is identical to `run-paid`: per-call `append_candidate`
+    with `fsync`, resume by source_id on re-invocation.
+    """
+    from daccord.ensemble.strategies.rag_seat import (
+        DEFAULT_EMBEDDER as RAG_DEFAULT_EMBEDDER,
+    )
+    from daccord.ensemble.strategies.rag_seat import RAGSeat
+
+    registry_dir = args.registry_dir
+    clauses_dir = args.clauses_dir
+    raw_dir = args.raw_dir
+    raw_dir.mkdir(parents=True, exist_ok=True)
+
+    pairs = _resolve_pair_set(args, registry_dir)
+
+    prompts_by_pair: dict[str, list[awsbatch.BatchPrompt]] = {}
+    for framework_pair in pairs:
+        if args.smoke:
+            prompts = build_smoke_prompts(
+                toy_gold_path=args.toy_gold,
+                registry_dir=registry_dir,
+                max_tokens=args.max_tokens,
+            )
+        else:
+            prompts = build_prompts_for_pair(
+                framework_pair=framework_pair,
+                registry_dir=registry_dir,
+                clauses_dir=clauses_dir,
+                max_tokens=args.max_tokens,
+                max_clauses=args.max_clauses_per_pair,
+            )
+        if prompts:
+            prompts_by_pair[framework_pair] = prompts
+
+    if not prompts_by_pair:
+        log.warning("[run-rag] no prompts to dispatch")
+        return 0
+
+    if args.dry_run:
+        for framework_pair, prompts in prompts_by_pair.items():
+            log.info(
+                "[run-rag][dry-run] %s: %d prompts × 1 retrieval seat",
+                framework_pair,
+                len(prompts),
+            )
+        return 0
+
+    if not args.indices_dir.exists():
+        log.error(
+            "[run-rag] indices dir not found: %s "
+            "(build via envs/eval/scripts/build_target_indices.py)",
+            args.indices_dir,
+        )
+        return 2
+
+    try:
+        strategy = RAGSeat(
+            indices_dir=args.indices_dir,
+            embedder_name=args.embedder,
+            top_k=args.top_k,
+            threshold=args.threshold,
+        )
+    except Exception as exc:
+        log.error("[run-rag] strategy construction failed: %s", exc)
+        return 3
+
+    log.info(
+        "[run-rag] %d pair(s) × 1 retrieval seat (%s); embedder=%s, top_k=%d, threshold=%.2f",
+        len(prompts_by_pair),
+        strategy.models[0],
+        args.embedder,
+        args.top_k,
+        args.threshold,
+    )
+
+    total_processed = 0
+    total_errors = 0
+    total_resumed = 0
+    for framework_pair, prompts in prompts_by_pair.items():
+        log.info("[run-rag] %s: dispatching %d prompts", framework_pair, len(prompts))
+        results = strategy.run_pair(framework_pair, prompts, raw_dir, smoke=args.smoke)
+        for model, rr in results.items():
+            log.info(
+                "[run-rag]   %s: processed=%d ok=%d errors=%d resumed=%d (%.1fs)",
+                model,
+                rr.total_processed,
+                rr.parse_ok,
+                rr.parse_errors,
+                rr.resumed_from_disk,
+                rr.seconds_elapsed,
+            )
+            total_processed += rr.total_processed
+            total_errors += rr.parse_errors
+            total_resumed += rr.resumed_from_disk
+
+    log.info(
+        "[run-rag] done: processed=%d errors=%d resumed=%d",
+        total_processed,
+        total_errors,
+        total_resumed,
+    )
+    _ = RAG_DEFAULT_EMBEDDER  # silence unused-import in branch where args.embedder differs
     return 0
 
 
@@ -1157,6 +1279,64 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     p_paid.set_defaults(func=cmd_run_paid)
+
+    p_rag = subparsers.add_parser(
+        "run-rag",
+        help="Tier 6B++ — local-compute RAG seat (semantic retrieval against "
+        "per-framework target-clause indices). 5th vote in the tier-7A ensemble; "
+        "no API calls. See src/daccord/ensemble/strategies/rag_seat.py.",
+    )
+    _add_common_args(p_rag)
+    p_rag.add_argument("--registry-dir", type=Path, default=DEFAULT_REGISTRY_DIR)
+    p_rag.add_argument("--clauses-dir", type=Path, default=DEFAULT_CLAUSES_DIR)
+    p_rag.add_argument("--toy-gold", type=Path, default=DEFAULT_TOY_GOLD)
+    p_rag.add_argument(
+        "--raw-dir",
+        type=Path,
+        default=DEFAULT_RAW_LOCAL_DIR,
+        help=f"Output directory for raw_local seat output (default: {DEFAULT_RAW_LOCAL_DIR}).",
+    )
+    p_rag.add_argument(
+        "--indices-dir",
+        type=Path,
+        default=DEFAULT_TARGET_INDICES_DIR,
+        help=f"Per-framework target-clause indices (default: {DEFAULT_TARGET_INDICES_DIR}).",
+    )
+    p_rag.add_argument(
+        "--framework-pair",
+        type=str,
+        default=None,
+        help="Restrict to one pair (e.g. gdpr__pdpa_sg).",
+    )
+    p_rag.add_argument(
+        "--max-clauses-per-pair",
+        type=int,
+        default=None,
+        help="Cap source clauses per pair.",
+    )
+    p_rag.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
+    p_rag.add_argument(
+        "--embedder",
+        type=str,
+        default="paraphrase-multilingual-mpnet-base-v2",
+        help=(
+            "sentence-transformers model name; should match the embedder used to build the indices."
+        ),
+    )
+    p_rag.add_argument("--top-k", type=int, default=5)
+    p_rag.add_argument(
+        "--threshold",
+        type=float,
+        default=0.4,
+        help="Min cosine similarity for top-1 to be considered a hit; below "
+        "this, the seat emits an empty-citation 'no analog' vote.",
+    )
+    p_rag.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build prompts but don't actually embed/search.",
+    )
+    p_rag.set_defaults(func=cmd_run_rag)
 
     args = p.parse_args(argv)
     logging.basicConfig(

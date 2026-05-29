@@ -38,15 +38,25 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     raw_dir = args.raw_dir
+    raw_local_dir = args.raw_local_dir
     out_dir = args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    pairs = _discover_framework_pairs(raw_dir, args.framework_pair)
+    extra_dirs: list[Path] = []
+    if raw_local_dir is not None and raw_local_dir.exists():
+        extra_dirs.append(raw_local_dir)
+
+    pairs = _discover_framework_pairs(raw_dir, args.framework_pair, extra_dirs=extra_dirs)
     if not pairs:
         log.error("No framework pairs found at %s", raw_dir)
         return 1
 
-    log.info("Tiering %d framework-pair(s): %s", len(pairs), ", ".join(pairs))
+    log.info(
+        "Tiering %d framework-pair(s)%s: %s",
+        len(pairs),
+        f" (+raw_local from {raw_local_dir})" if extra_dirs else "",
+        ", ".join(pairs),
+    )
 
     overall: Counter[str] = Counter()
     for fp in pairs:
@@ -54,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
             framework_pair=fp,
             raw_dir=raw_dir,
             expected_models=args.expected_models or None,
+            extra_dirs=extra_dirs or None,
         )
         _write_tiered(out_dir / f"{fp}.jsonl", tiered)
         counts = Counter(t.tier for t in tiered)
@@ -84,7 +95,18 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--raw-dir",
         type=Path,
         default=Path("data/ensemble/raw"),
-        help="Directory containing {framework_pair}__{model}.jsonl files (tier 7A output).",
+        help=(
+            "Directory containing {framework_pair}__{model}.jsonl files (tier 7A paid-API output)."
+        ),
+    )
+    parser.add_argument(
+        "--raw-local-dir",
+        type=Path,
+        default=Path("data/ensemble/raw_local"),
+        help="Optional secondary directory containing local-compute seat output "
+        "(e.g. tier-6B++ RAG seat at data/ensemble/raw_local/). Globbed with "
+        "the same {pair}__{model}.jsonl pattern; models vote alongside the "
+        "paid-API seats. Silently ignored when absent.",
     )
     parser.add_argument(
         "--out-dir",
@@ -111,20 +133,27 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _discover_framework_pairs(raw_dir: Path, restrict_to: str | None) -> list[str]:
+def _discover_framework_pairs(
+    raw_dir: Path,
+    restrict_to: str | None,
+    extra_dirs: list[Path] | None = None,
+) -> list[str]:
+    search_dirs = [raw_dir, *(extra_dirs or [])]
     if restrict_to is not None:
-        if list(raw_dir.glob(f"{restrict_to}__*.jsonl")):
-            return [restrict_to]
+        for d in search_dirs:
+            if list(d.glob(f"{restrict_to}__*.jsonl")):
+                return [restrict_to]
         return []
     # Strip the "__{model}.jsonl" suffix to recover the framework_pair.
     pairs: set[str] = set()
-    for path in raw_dir.glob("*__*.jsonl"):
-        stem = path.stem  # e.g. gdpr__pdpa_sg__llama-4-scout
-        # Take everything before the LAST "__"
-        idx = stem.rfind("__")
-        if idx <= 0:
-            continue
-        pairs.add(stem[:idx])
+    for d in search_dirs:
+        for path in d.glob("*__*.jsonl"):
+            stem = path.stem  # e.g. gdpr__pdpa_sg__llama-4-scout
+            # Take everything before the LAST "__"
+            idx = stem.rfind("__")
+            if idx <= 0:
+                continue
+            pairs.add(stem[:idx])
     return sorted(pairs)
 
 

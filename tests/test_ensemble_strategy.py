@@ -18,6 +18,7 @@ import pytest
 from daccord.ensemble import BatchPrompt, EnsembleCandidate
 from daccord.ensemble.strategies.paid_api import PaidAPIStrategy
 from daccord.ensemble.strategy import (
+    ImmutabilityViolation,
     append_candidate,
     load_completed_source_ids,
     make_error_candidate,
@@ -131,6 +132,74 @@ def test_make_error_candidate_flags_parse_error() -> None:
     assert cand.citation_id == ""
 
 
+def test_append_candidate_refuses_duplicate_source_id(tmp_path: Path) -> None:
+    """Immutability: cannot append a second row for an already-written source_id.
+
+    Guards against bugs in the resume-by-source_id filter and against a
+    primary run accidentally being launched on top of a complete file.
+    """
+    path = tmp_path / "out.jsonl"
+    append_candidate(path, _make_candidate("src_1"))
+    with pytest.raises(ImmutabilityViolation, match="duplicate source_id='src_1'"):
+        append_candidate(path, _make_candidate("src_1"))
+    # And the rejection equally applies to a parse_error row trying to
+    # overwrite a successful row.
+    append_candidate(path, _make_candidate("src_2"))
+    with pytest.raises(ImmutabilityViolation, match="duplicate source_id='src_2'"):
+        append_candidate(path, _make_candidate("src_2", parse_error="anything"))
+
+
+def test_append_candidate_refuses_replacing_parse_error_directly(tmp_path: Path) -> None:
+    """Even a parse_error row can't be replaced via direct append.
+
+    The sanctioned way is `prune_parse_errors` first, then append. Direct
+    replacement is refused so a bug never silently rewrites a row.
+    """
+    path = tmp_path / "out.jsonl"
+    append_candidate(path, _make_candidate("src_1", parse_error="timeout"))
+    with pytest.raises(ImmutabilityViolation, match="duplicate source_id='src_1'"):
+        append_candidate(path, _make_candidate("src_1"))
+    # The sanctioned recovery: prune first, then append.
+    prune_parse_errors(path)
+    append_candidate(path, _make_candidate("src_1"))
+    rows = read_candidates_jsonl(path)
+    assert len(rows) == 1
+    assert rows[0].parse_error is None
+
+
+def test_write_candidates_atomic_refuses_dropping_successful_row(tmp_path: Path) -> None:
+    """Immutability: atomic rewrite cannot drop or replace a successful row.
+
+    Guards against any future code path (Bedrock strategy re-run, a buggy
+    refactor, etc.) accidentally clobbering successful rows.
+    """
+    path = tmp_path / "out.jsonl"
+    append_candidate(path, _make_candidate("src_1"))
+    append_candidate(path, _make_candidate("src_2"))
+    # Try to rewrite the file losing src_1.
+    with pytest.raises(ImmutabilityViolation, match="would drop or replace successful"):
+        write_candidates_atomic(path, [_make_candidate("src_2"), _make_candidate("src_3")])
+    # Sanity: file is unchanged.
+    rows = read_candidates_jsonl(path)
+    assert {c.source_id for c in rows} == {"src_1", "src_2"}
+
+
+def test_write_candidates_atomic_allows_superset_rewrite(tmp_path: Path) -> None:
+    """Atomic rewrite is allowed when no successful row is dropped.
+
+    Includes: rewriting an all-error file with a clean batch (parse_errors
+    can be replaced freely), appending more successful rows alongside
+    existing ones, and rewriting an empty file.
+    """
+    path = tmp_path / "out.jsonl"
+    # Empty target → fine.
+    write_candidates_atomic(path, [_make_candidate("src_1")])
+    # Now path has src_1 successful. Rewriting with src_1 still present is OK.
+    write_candidates_atomic(path, [_make_candidate("src_1"), _make_candidate("src_2")])
+    rows = read_candidates_jsonl(path)
+    assert {c.source_id for c in rows} == {"src_1", "src_2"}
+
+
 def test_prune_parse_errors_removes_only_error_rows(tmp_path: Path) -> None:
     """Successful rows survive; parse_error rows are scrubbed."""
     path = tmp_path / "out.jsonl"
@@ -181,9 +250,7 @@ def test_paid_api_strategy_retry_errors_recalls_only_failed_rows(tmp_path: Path)
     client_b = _FakeModelClient(provider="pb", model="m/b")
     strategy = PaidAPIStrategy(clients=[client_a, client_b])
     prompts = [_make_prompt(f"src_{i}") for i in range(2)]
-    results = strategy.run_pair(
-        "gdpr__pdpa_sg", prompts, tmp_path, smoke=False, retry_errors=True
-    )
+    results = strategy.run_pair("gdpr__pdpa_sg", prompts, tmp_path, smoke=False, retry_errors=True)
 
     # Seat A: only src_1 re-called (the parse_error one). src_0 stayed.
     assert results["m/a"].total_processed == 1
